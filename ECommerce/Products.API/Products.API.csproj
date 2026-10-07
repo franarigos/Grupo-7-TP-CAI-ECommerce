@@ -11,9 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Models\" />
     <Folder Include="DTOs\" />
-    <Folder Include="Exceptions\" />
     <Folder Include="ExceptionHandlers\" />
     <Folder Include="Services\" />
   </ItemGroup>
