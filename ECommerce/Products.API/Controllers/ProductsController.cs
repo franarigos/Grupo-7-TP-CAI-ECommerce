@@ -1,4 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Products.API.Models;
+using Products.API.Exceptions;
 
 namespace Products.API.Controllers
 {
@@ -6,28 +8,36 @@ namespace Products.API.Controllers
     [Route("api/products")]
     public class ProductsController : ControllerBase
     {
-        // GET /api/products
         [HttpGet]
-        public IActionResult GetProducts([FromQuery] string categoria, [FromQuery] string nombre)
+        public IActionResult GetProducts([FromQuery] string? categoria, [FromQuery] string? nombre)
         {
-            // Retornamos un 200 OK vacío por el momento
-            return Ok();
+            return Ok(new List<Product>());
         }
 
-        // GET /api/products/{id}
         [HttpGet("{id}")]
         public IActionResult GetProductById(Guid id)
         {
-            // Simulamos que el producto no existe para disparar el error PRD-001
-            bool productoEncontrado = false;
+            throw new NotFoundException("PRD-001", "Producto no encontrado.");
+        }
 
-            if (!productoEncontrado)
-            {
-                // Usaremos la excepción personalizada que armaremos en el próximo paso
-                throw new Exception("PRD-001: Producto no encontrado.");
-            }
+        [HttpPost]
+        public IActionResult CreateProduct([FromBody] Product product)
+        {
+            product.Id = Guid.NewGuid();
+            product.FechaCreacion = DateTime.UtcNow;
+            return Created($"/api/products/{product.Id}", product);
+        }
 
-            return Ok();
+        [HttpPut("{id}")]
+        public IActionResult UpdateProduct(Guid id, [FromBody] Product product)
+        {
+            return Ok(product);
+        }
+
+        [HttpDelete("{id}")]
+        public IActionResult DeleteProduct(Guid id)
+        {
+            return NoContent();
         }
     }
 }
