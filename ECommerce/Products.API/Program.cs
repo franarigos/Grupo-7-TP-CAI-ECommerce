@@ -18,6 +18,9 @@ try
     builder.Services.AddSwaggerGen();
 
     builder.Services.AddExceptionHandler<Products.API.ExceptionHandlers.NotFoundExceptionHandler>();
+    builder.Services.AddExceptionHandler<Products.API.ExceptionHandlers.ValidationExceptionHandler>();
+    builder.Services.AddExceptionHandler<Products.API.ExceptionHandlers.BusinessRuleExceptionHandler>();
+
     builder.Services.AddProblemDetails();
 
     var app = builder.Build();
