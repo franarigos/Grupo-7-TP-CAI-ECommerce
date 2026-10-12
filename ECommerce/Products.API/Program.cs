@@ -41,6 +41,8 @@ try
 
     app.MapControllers();
 
+    app.MapGet("/", () => Results.Redirect("/swagger"));
+
     app.Run();
 }
 finally
