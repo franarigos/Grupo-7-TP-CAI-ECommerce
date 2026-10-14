@@ -47,5 +47,58 @@ namespace Users.API.Services
 
             return response;
         }
+
+        public LoginResponseDto Login(LoginRequestDto request)
+        {
+            User? usuarioEncontrado = null;
+
+            foreach (User u in _usuariosDb)
+            {
+                if (u.Email == request.Email)
+                {
+                    usuarioEncontrado = u;
+                    break;
+                }
+            }
+
+            if (usuarioEncontrado == null)
+            {
+                throw new UnauthorizedException("USR-003", "Credenciales incorrectas.");
+            }
+
+            if (!usuarioEncontrado.Activo)
+            {
+                if (usuarioEncontrado.IntentosFallidos >= 3)
+                {
+                    throw new ForbiddenException("USR-004", "Su cuenta fue bloqueada por superar el máximo de intentos fallidos. Contacte a soporte.");
+                }
+                else
+                {
+                    throw new ForbiddenException("USR-005", "Su cuenta fue suspendida por razones de seguridad. Contacte a soporte.");
+                }
+            }
+
+            if (usuarioEncontrado.PasswordHash != request.Password)
+            {
+                usuarioEncontrado.IntentosFallidos++;
+
+                if (usuarioEncontrado.IntentosFallidos >= 3)
+                {
+                    usuarioEncontrado.Activo = false;
+                }
+
+                throw new UnauthorizedException("USR-003", "Credenciales incorrectas.");
+            }
+
+            usuarioEncontrado.IntentosFallidos = 0;
+
+            LoginResponseDto response = new LoginResponseDto();
+            response.Id = usuarioEncontrado.Id;
+            response.Nombre = usuarioEncontrado.Nombre;
+            response.Apellido = usuarioEncontrado.Apellido;
+            response.Email = usuarioEncontrado.Email;
+
+            return response;
+        }
     }
 }
