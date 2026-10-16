@@ -2,8 +2,13 @@
 
 namespace Cart.API.Exceptions
 {
-    public class NotFoundException(string errorCode, string message) : Exception(message)
+    public class NotFoundException : Exception
     {
-        public string ErrorCode { get; } = errorCode;
+        public string ErrorCode { get; }
+
+        public NotFoundException(string errorCode, string message) : base(message)
+        {
+            ErrorCode = errorCode;
+        }
     }
 }

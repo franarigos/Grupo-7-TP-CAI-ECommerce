@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -9,9 +10,16 @@ using CartModel = Cart.API.Models.Cart;
 
 namespace Cart.API.Services
 {
+    public class MockRepository
+    {
+        private List<CartModel> _db = new List<CartModel>();
+        public CartModel Get(Guid id) => _db.FirstOrDefault(c => c.UsuarioId == id);
+        public void Update(CartModel cart) { if (!_db.Contains(cart)) _db.Add(cart); }
+    }
+
     public class CartService
     {
-        private readonly dynamic _repository;
+        private readonly MockRepository _repository = new MockRepository();
         private readonly IHttpClientFactory _httpClientFactory;
 
         public CartService(IHttpClientFactory httpClientFactory)
@@ -39,8 +47,16 @@ namespace Cart.API.Services
         public async Task<CartResponse> AgregarItemAsync(Guid userId, AddCartItemRequest request)
         {
             CartModel carrito = _repository.Get(userId);
+
             if (carrito == null)
-                throw new NotFoundException("CRT-001", "Carrito no encontrado.");
+            {
+                carrito = new CartModel
+                {
+                    UsuarioId = userId,
+                    Items = new List<Cart.API.Models.CartItem>(),
+                    FechaActualizacion = DateTime.UtcNow
+                };
+            }
 
             var item = carrito.Items.FirstOrDefault(i => i.ProductoId == request.ProductoId);
             int cantidadFinal = item != null ? item.Cantidad + request.Cantidad : request.Cantidad;
