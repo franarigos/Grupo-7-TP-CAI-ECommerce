@@ -8,9 +8,6 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddSingleton<CartService>();
-
-
 builder.Services.AddHttpClient("ProductsAPI", client =>
 {
     client.BaseAddress = new Uri("https://localhost:44380/");
@@ -19,7 +16,15 @@ builder.Services.AddHttpClient("ProductsAPI", client =>
 builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
 builder.Services.AddExceptionHandler<NotFoundExceptionHandler>();
 builder.Services.AddExceptionHandler<BusinessRuleExceptionHandler>();
-builder.Services.AddProblemDetails(); 
+builder.Services.AddProblemDetails();
+
+
+builder.Services.AddHttpClient("ProductsAPI", client =>
+{
+    client.BaseAddress = new Uri("https://localhost:5092");
+});
+
+builder.Services.AddScoped<Cart.API.Services.CartService>();
 
 var app = builder.Build();
 

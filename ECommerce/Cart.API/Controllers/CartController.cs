@@ -33,14 +33,14 @@ namespace Cart.API.Controllers
         }
 
         [HttpPut("{userId}/items/{productId}")]
-        public ActionResult<CartResponse> UpdateItemQuantity(Guid userId, Guid productId, [FromBody] UpdateCartItemRequest request)
+        public async Task<ActionResult<CartResponse>> UpdateItemQuantity(Guid userId, Guid productId, [FromBody] UpdateCartItemRequest request)
         {
             if (request.Cantidad <= 0)
             {
                 throw new ValidationException("CRT-004", "Cantidad inválida.");
             }
 
-            var carritoActualizado = _cartService.UpdateItemQuantity(userId, productId, request.Cantidad);
+            var carritoActualizado = await _cartService.UpdateItemQuantityAsync(userId, productId, request.Cantidad);
             return Ok(carritoActualizado);
         }
 
