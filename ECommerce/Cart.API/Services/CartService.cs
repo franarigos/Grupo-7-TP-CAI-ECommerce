@@ -46,6 +46,9 @@ namespace Cart.API.Services
 
         public async Task<CartResponse> AgregarItemAsync(Guid userId, AddCartItemRequest request)
         {
+            if (request.Cantidad <= 0)
+                throw new ValidationException("CRT-004", "Cantidad inválida.");
+
             CartModel carrito = _repository.Get(userId);
 
             if (carrito == null)
@@ -93,6 +96,9 @@ namespace Cart.API.Services
 
         public async Task<CartResponse> UpdateItemQuantityAsync(Guid userId, Guid productId, int nuevaCantidad)
         {
+            if (nuevaCantidad <= 0)
+                throw new ValidationException("CRT-004", "Cantidad inválida.");
+
             CartModel carrito = _repository.Get(userId);
             if (carrito == null)
                 throw new NotFoundException("CRT-001", "Carrito no encontrado.");

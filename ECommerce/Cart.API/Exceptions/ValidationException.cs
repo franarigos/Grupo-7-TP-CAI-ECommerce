@@ -2,8 +2,13 @@
 
 namespace Cart.API.Exceptions
 {
-    public class ValidationException(string errorCode, string message) : Exception(message)
+    public class ValidationException : Exception
     {
-        public string ErrorCode { get; } = errorCode;
+        public string ErrorCode { get; }
+
+        public ValidationException(string errorCode, string message) : base(message)
+        {
+            ErrorCode = errorCode;
+        }
     }
 }

@@ -13,6 +13,8 @@ namespace Cart.API.ExceptionHandlers
         {
             if (exception is not NotFoundException ex) return false;
 
+            var correlationId = context.Items["CorrelationId"]?.ToString();
+
             context.Response.StatusCode = 404;
             await context.Response.WriteAsJsonAsync(new
             {
@@ -22,7 +24,8 @@ namespace Cart.API.ExceptionHandlers
                 detail = "El recurso solicitado no fue encontrado.",
                 instance = context.Request.Path.Value,
                 errorCode = ex.ErrorCode,
-                errorMessage = ex.Message
+                errorMessage = ex.Message,
+                correlationId = correlationId
             }, cancellationToken: cancellationToken);
 
             return true;

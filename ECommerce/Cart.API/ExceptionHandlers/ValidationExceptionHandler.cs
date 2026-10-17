@@ -13,6 +13,8 @@ namespace Cart.API.ExceptionHandlers
         {
             if (exception is not ValidationException ex) return false;
 
+            var correlationId = context.Items["CorrelationId"]?.ToString();
+
             context.Response.StatusCode = 400;
             await context.Response.WriteAsJsonAsync(new
             {
@@ -22,7 +24,8 @@ namespace Cart.API.ExceptionHandlers
                 detail = "Los datos enviados no son válidos.",
                 instance = context.Request.Path.Value,
                 errorCode = ex.ErrorCode,
-                errorMessage = ex.Message
+                errorMessage = ex.Message,
+                correlationId = correlationId
             }, cancellationToken: cancellationToken);
 
             return true;

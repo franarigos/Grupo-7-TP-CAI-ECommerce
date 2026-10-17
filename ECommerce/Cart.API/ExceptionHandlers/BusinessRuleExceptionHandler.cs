@@ -13,6 +13,8 @@ namespace Cart.API.ExceptionHandlers
         {
             if (exception is not BusinessRuleException ex) return false;
 
+            var correlationId = context.Items["CorrelationId"]?.ToString();
+
             context.Response.StatusCode = 422;
             await context.Response.WriteAsJsonAsync(new
             {
@@ -22,7 +24,8 @@ namespace Cart.API.ExceptionHandlers
                 detail = "No se puede procesar la solicitud.",
                 instance = context.Request.Path.Value,
                 errorCode = ex.ErrorCode,
-                errorMessage = ex.Message
+                errorMessage = ex.Message,
+                correlationId = correlationId
             }, cancellationToken: cancellationToken);
 
             return true;
