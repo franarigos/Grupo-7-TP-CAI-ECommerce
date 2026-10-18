@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using Products.API.DTOs;
+﻿using Products.API.DTOs;
 using Products.API.Exceptions;
 using Products.API.Models;
 
@@ -9,7 +6,6 @@ namespace Products.API.Services
 {
     public class ProductService
     {
-        
         private static readonly List<Product> _productos = new();
 
         public List<ProductResponse> GetProducts(string? categoria, string? nombre)
@@ -82,21 +78,20 @@ namespace Products.API.Services
             if (producto == null)
                 throw new NotFoundException("PRD-001", "Producto no encontrado.");
 
-           
             _productos.Remove(producto);
         }
 
-        private ProductResponse MapToResponse(Product producto)
+        private static ProductResponse MapToResponse(Product product)
         {
             return new ProductResponse
             {
-                Id = producto.Id,
-                Nombre = producto.Nombre,
-                Descripcion = producto.Descripcion,
-                Precio = producto.Precio,
-                Stock = producto.Stock,
-                Categoria = producto.Categoria,
-                FechaCreacion = producto.FechaCreacion
+                Id = product.Id,
+                Nombre = product.Nombre,
+                Descripcion = product.Descripcion,
+                Precio = product.Precio,
+                Stock = product.Stock,
+                Categoria = product.Categoria,
+                FechaCreacion = product.FechaCreacion
             };
         }
     }
