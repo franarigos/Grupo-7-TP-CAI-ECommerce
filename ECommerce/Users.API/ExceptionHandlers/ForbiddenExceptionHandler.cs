@@ -13,6 +13,8 @@ namespace Users.API.ExceptionHandlers
         {
             if (exception is not ForbiddenException ex) return false;
 
+            var correlationId = context.Request.Headers["X-Correlation-Id"].ToString();
+
             context.Response.StatusCode = 403;
             await context.Response.WriteAsJsonAsync(new
             {
@@ -22,7 +24,8 @@ namespace Users.API.ExceptionHandlers
                 detail = "El acceso está prohibido.",
                 instance = context.Request.Path.Value,
                 errorCode = ex.ErrorCode,
-                errorMessage = ex.Message
+                errorMessage = ex.Message,
+                correlationId = correlationId 
             }, cancellationToken: cancellationToken);
 
             return true;

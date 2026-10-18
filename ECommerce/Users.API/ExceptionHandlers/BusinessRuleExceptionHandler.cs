@@ -11,10 +11,9 @@ namespace Users.API.ExceptionHandlers
     {
         public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
         {
-            if (exception is not BusinessRuleException ex)
-            {
-                return false;
-            }
+            if (exception is not BusinessRuleException ex) return false;
+
+            var correlationId = context.Request.Headers["X-Correlation-Id"].ToString();
 
             context.Response.StatusCode = 409;
             await context.Response.WriteAsJsonAsync(new
@@ -22,10 +21,11 @@ namespace Users.API.ExceptionHandlers
                 type = "https://tools.ietf.org/html/rfc7231#section-6.5.9",
                 title = "Conflict",
                 status = 409,
-                detail = "Ya existe un recurso con esos datos.",
+                detail = "Ya existe un recurso con esos datos o hay un conflicto de negocio.",
                 instance = context.Request.Path.Value,
                 errorCode = ex.ErrorCode,
-                errorMessage = ex.Message
+                errorMessage = ex.Message,
+                correlationId = correlationId
             }, cancellationToken: cancellationToken);
 
             return true;

@@ -1,13 +1,12 @@
-﻿using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Users.API.DTOs;
 using Users.API.Services;
-using Users.API.Models; 
 
 namespace Users.API.Controllers
 {
+    [Route("api/[controller]")]
     [ApiController]
-    [Route("api/users")]
+    [Tags("Users")]
     public class UsersController : ControllerBase
     {
         private readonly UserService _userService;
@@ -17,20 +16,38 @@ namespace Users.API.Controllers
             _userService = userService;
         }
 
+        /// <summary>
+        /// Registrar nuevo usuario.
+        /// </summary>
+        /// <response code="201">Creado exitosamente.</response>
+        /// <response code="400">USR-002</response>
+        /// <response code="409">USR-001</response>
+        /// <response code="500">USR-006</response>
         [HttpPost("register")]
-        [ProducesResponseType(typeof(RegisterUserResponse), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(RegisterUserResponse), 201)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(409)]
+        [ProducesResponseType(500)]
         public IActionResult Register([FromBody] RegisterUserRequest request)
         {
-            RegisterUserResponse response = _userService.Register(request);
-            return Created($"api/users/{response.Id}", response);
+            var response = _userService.Register(request);
+            return StatusCode(201, response);
         }
 
+        /// <summary>
+        /// Autenticar usuario (email + password).
+        /// </summary>
+        /// <response code="200">Autenticación exitosa.</response>
+        /// <response code="400">Datos inválidos.</response>
+        /// <response code="401">USR-003</response>
+        /// <response code="403">USR-004 o USR-005</response>
+        /// <response code="500">USR-006</response>
         [HttpPost("login")]
-        [ProducesResponseType(typeof(LoginResponseDto), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(LoginResponseDto), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        [ProducesResponseType(500)]
         public IActionResult Login([FromBody] LoginRequestDto request)
         {
             var response = _userService.Login(request);
