@@ -1,5 +1,10 @@
 ﻿using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http;
 using Products.API.Exceptions;
+using Serilog;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Products.API.ExceptionHandlers
 {
@@ -8,6 +13,11 @@ namespace Products.API.ExceptionHandlers
         public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
         {
             if (exception is not ValidationException ex) return false;
+
+            var correlationId = context.Request.Headers["X-Correlation-Id"].ToString();
+
+            Log.Warning("Error de validación en {Endpoint} | Código: {ErrorCode} | CorrelationId: {CorrelationId} | Detalle: {Message}",
+                context.Request.Path.Value, ex.ErrorCode, correlationId, ex.Message);
 
             context.Response.StatusCode = 400;
             await context.Response.WriteAsJsonAsync(new
@@ -18,7 +28,8 @@ namespace Products.API.ExceptionHandlers
                 detail = "Los datos del producto son inválidos.",
                 instance = context.Request.Path.Value,
                 errorCode = ex.ErrorCode,
-                errorMessage = ex.Message
+                errorMessage = ex.Message,
+                correlationId = correlationId
             }, cancellationToken: cancellationToken);
 
             return true;
