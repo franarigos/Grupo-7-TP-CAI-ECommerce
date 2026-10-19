@@ -21,6 +21,8 @@ namespace Products.API.Controllers
         /// <summary>
         /// Listar productos (con filtros opcionales por categoría y nombre)
         /// </summary>
+        /// <response code="200">Lista de productos.</response>
+        /// <response code="500">PRD-005</response>
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<ProductResponse>), 200)]
         [ProducesResponseType(500)]
@@ -33,6 +35,9 @@ namespace Products.API.Controllers
         /// <summary>
         /// Obtener producto por ID
         /// </summary>
+        /// <response code="200">Producto encontrado.</response>
+        /// <response code="404">PRD-001</response>
+        /// <response code="500">PRD-005</response>
         [HttpGet("{id}")]
         [ProducesResponseType(typeof(ProductResponse), 200)]
         [ProducesResponseType(404)]
@@ -46,6 +51,10 @@ namespace Products.API.Controllers
         /// <summary>
         /// Crear nuevo producto
         /// </summary>
+        /// <response code="201">Creado exitosamente.</response>
+        /// <response code="400">PRD-002</response>
+        /// <response code="409">PRD-003</response>
+        /// <response code="500">PRD-005</response>
         [HttpPost]
         [ProducesResponseType(typeof(ProductResponse), 201)]
         [ProducesResponseType(400)]
@@ -60,6 +69,10 @@ namespace Products.API.Controllers
         /// <summary>
         /// Actualizar producto existente
         /// </summary>
+        /// <response code="200">Actualizado exitosamente.</response>
+        /// <response code="400">PRD-002</response>
+        /// <response code="404">PRD-001</response>
+        /// <response code="500">PRD-005</response>
         [HttpPut("{id}")]
         [ProducesResponseType(typeof(ProductResponse), 200)]
         [ProducesResponseType(400)]
@@ -74,6 +87,10 @@ namespace Products.API.Controllers
         /// <summary>
         /// Eliminar producto
         /// </summary>
+        /// <response code="204">Eliminado exitosamente.</response>
+        /// <response code="404">PRD-001</response>
+        /// <response code="409">PRD-004</response>
+        /// <response code="500">PRD-005</response>
         [HttpDelete("{id}")]
         [ProducesResponseType(204)]
         [ProducesResponseType(404)]
