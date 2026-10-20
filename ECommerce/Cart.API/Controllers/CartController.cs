@@ -21,6 +21,9 @@ namespace Cart.API.Controllers
         /// <summary>
         /// Obtener carrito del usuario
         /// </summary>
+        /// <response code="200">Carrito obtenido exitosamente.</response>
+        /// <response code="404">CRT-001</response>
+        /// <response code="500">CRT-005</response>
         [HttpGet("{userId}")]
         [ProducesResponseType(typeof(CartResponse), 200)]
         [ProducesResponseType(404)]
@@ -34,6 +37,11 @@ namespace Cart.API.Controllers
         /// <summary>
         /// Agregar producto al carrito
         /// </summary>
+        /// <response code="200">Producto agregado exitosamente.</response>
+        /// <response code="400">CRT-004</response>
+        /// <response code="404">CRT-002</response>
+        /// <response code="422">CRT-003</response>
+        /// <response code="500">CRT-005</response>
         [HttpPost("{userId}/items")]
         [ProducesResponseType(typeof(CartResponse), 200)]
         [ProducesResponseType(400)]
@@ -49,6 +57,11 @@ namespace Cart.API.Controllers
         /// <summary>
         /// Actualizar cantidad de un item
         /// </summary>
+        /// <response code="200">Cantidad actualizada exitosamente.</response>
+        /// <response code="400">CRT-004</response>
+        /// <response code="404">CRT-001 / CRT-002</response>
+        /// <response code="422">CRT-003</response>
+        /// <response code="500">CRT-005</response>
         [HttpPut("{userId}/items/{productId}")]
         [ProducesResponseType(typeof(CartResponse), 200)]
         [ProducesResponseType(400)]
@@ -64,6 +77,9 @@ namespace Cart.API.Controllers
         /// <summary>
         /// Quitar un producto del carrito
         /// </summary>
+        /// <response code="204">Producto eliminado del carrito.</response>
+        /// <response code="404">CRT-001</response>
+        /// <response code="500">CRT-005</response>
         [HttpDelete("{userId}/items/{productId}")]
         [ProducesResponseType(204)]
         [ProducesResponseType(404)]
@@ -77,6 +93,9 @@ namespace Cart.API.Controllers
         /// <summary>
         /// Vaciar carrito completo
         /// </summary>
+        /// <response code="204">Carrito vaciado exitosamente.</response>
+        /// <response code="404">CRT-001</response>
+        /// <response code="500">CRT-005</response>
         [HttpDelete("{userId}")]
         [ProducesResponseType(204)]
         [ProducesResponseType(404)]
@@ -86,10 +105,5 @@ namespace Cart.API.Controllers
             _cartService.ClearCart(userId);
             return NoContent();
         }
-    }
-
-    public class UpdateCartItemRequest
-    {
-        public int Cantidad { get; set; }
     }
 }

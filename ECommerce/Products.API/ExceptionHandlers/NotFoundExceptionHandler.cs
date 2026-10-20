@@ -1,8 +1,4 @@
 ﻿using Microsoft.AspNetCore.Diagnostics;
-using Products.API.Exceptions;
-using Serilog;
-
-usinusing Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Products.API.Exceptions;
 using Serilog;
