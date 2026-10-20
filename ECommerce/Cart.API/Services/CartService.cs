@@ -12,14 +12,17 @@ namespace Cart.API.Services
 {
     public class MockRepository
     {
-        private List<CartModel> _db = new List<CartModel>();
+        private readonly List<CartModel> _db = new List<CartModel>();
         public CartModel Get(Guid id) => _db.FirstOrDefault(c => c.UsuarioId == id);
-        public void Update(CartModel cart) { if (!_db.Contains(cart)) _db.Add(cart); }
+        public void Update(CartModel cart)
+        {
+            if (!_db.Contains(cart)) _db.Add(cart);
+        }
     }
 
     public class CartService
     {
-        private readonly MockRepository _repository = new MockRepository();
+        private static readonly MockRepository _repository = new MockRepository();
         private readonly IHttpClientFactory _httpClientFactory;
 
         public CartService(IHttpClientFactory httpClientFactory)
@@ -105,7 +108,7 @@ namespace Cart.API.Services
 
             var item = carrito.Items.FirstOrDefault(i => i.ProductoId == productId);
             if (item == null)
-                throw new NotFoundException("CRT-002", "Producto no encontrado en el carrito.");
+                throw new NotFoundException("CRT-002", "Producto no encontrado.");
 
             await ValidarStockAsync(productId, nuevaCantidad);
 
