@@ -8,34 +8,22 @@ namespace Orders.API.Models
     /// </summary>
     public class Order
     {
-        /// <summary>
-        /// Identificador único de la orden.
-        /// </summary>
+        /// <summary>Identificador único de la orden.</summary>
         public Guid Id { get; set; }
 
-        /// <summary>
-        /// Identificador del usuario que realizó la orden.
-        /// </summary>
+        /// <summary>Referencia al usuario que realizó la orden.</summary>
         public Guid UsuarioId { get; set; }
 
-        /// <summary>
-        /// Lista de productos que componen la orden de compra.
-        /// </summary>
+        /// <summary>Lista de productos incluidos en la orden.</summary>
         public List<OrderItem> Items { get; set; } = new List<OrderItem>();
 
-        /// <summary>
-        /// Monto total calculado para la orden.
-        /// </summary>
+        /// <summary>Calculado automáticamente al crear la orden.</summary>
         public decimal Total { get; set; }
 
-        /// <summary>
-        /// Estado actual de la orden: Pendiente, Confirmada, Enviada, Entregada o Cancelada.
-        /// </summary>
+        /// <summary>Pendiente | Confirmada | Enviada | Entregada | Cancelada</summary>
         public string Estado { get; set; } = "Pendiente";
 
-        /// <summary>
-        /// Fecha y hora en la que se generó la orden.
-        /// </summary>
+        /// <summary>Asignado automáticamente al crear.</summary>
         public DateTime FechaCreacion { get; set; }
     }
 }
