@@ -4,44 +4,44 @@ using System.Collections.Generic;
 namespace Orders.API.DTOs
 {
     /// <summary>
-    /// Respuesta que devuelve los datos detallados de una orden.
+    /// Respuesta detallada de la orden.
     /// </summary>
     public class OrderResponse
     {
-        /// <summary>Identificador único de la orden.</summary>
+        /// <summary>ID de la orden.</summary>
         public Guid Id { get; set; }
 
-        /// <summary>Identificador del usuario dueño de la orden.</summary>
+        /// <summary>ID del usuario.</summary>
         public Guid UsuarioId { get; set; }
 
-        /// <summary>Detalles de los productos incluidos en la orden.</summary>
+        /// <summary>Detalles de los productos.</summary>
         public List<OrderItemResponse> Items { get; set; } = new List<OrderItemResponse>();
 
-        /// <summary>Costo total de la orden.</summary>
+        /// <summary>Monto total.</summary>
         public decimal Total { get; set; }
 
-        /// <summary>Estado actual de la orden.</summary>
+        /// <summary>Estado de la orden.</summary>
         public string Estado { get; set; }
 
-        /// <summary>Fecha en la que se registró la orden.</summary>
+        /// <summary>Fecha de creacion.</summary>
         public DateTime FechaCreacion { get; set; }
 
-        /// <summary>Fecha de la última actualización del estado (si aplica).</summary>
+        /// <summary>Fecha de ultima modificacion.</summary>
         public DateTime? FechaActualizacion { get; set; }
     }
 
     /// <summary>
-    /// Respuesta que devuelve el detalle de un producto dentro de una orden.
+    /// Detalle del producto comprado.
     /// </summary>
     public class OrderItemResponse
     {
-        /// <summary>Identificador del producto.</summary>
+        /// <summary>ID del producto.</summary>
         public Guid ProductoId { get; set; }
 
         /// <summary>Cantidad comprada.</summary>
         public int Cantidad { get; set; }
 
-        /// <summary>Precio unitario al momento de la compra.</summary>
+        /// <summary>Precio al momento de compra.</summary>
         public decimal PrecioUnitario { get; set; }
     }
 }
