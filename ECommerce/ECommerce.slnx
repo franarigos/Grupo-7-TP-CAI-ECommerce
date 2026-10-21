@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Cart.API/Cart.API.csproj" Id="03e8d503-42d6-4ae8-96c2-0db7b40f9340" />
+  <Project Path="Orders.API/Orders.API.csproj" Id="c125dad2-6ae6-4060-aa91-32c240e5cd02" />
   <Project Path="Products.API/Products.API.csproj" />
   <Project Path="Users.API/Users.API.csproj" Id="cd2c5c30-bac4-44f9-9805-57c89a5b5f2c" />
 </Solution>
