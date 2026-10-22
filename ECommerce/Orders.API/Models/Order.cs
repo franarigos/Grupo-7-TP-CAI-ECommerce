@@ -25,5 +25,8 @@ namespace Orders.API.Models
 
         /// <summary>Asignado automáticamente al crear.</summary>
         public DateTime FechaCreacion { get; set; }
+
+        /// <summary>Fecha de última modificación.</summary>
+        public DateTime? FechaActualizacion { get; set; }
     }
 }

@@ -93,6 +93,8 @@ namespace Orders.API.Services
 
             orden.Estado = request.Estado;
 
+            orden.FechaActualizacion = DateTime.UtcNow;
+
             return MapearA_Response(orden);
         }
 
@@ -105,6 +107,7 @@ namespace Orders.API.Services
                 Total = orden.Total,
                 Estado = orden.Estado,
                 FechaCreacion = orden.FechaCreacion,
+                FechaActualizacion = orden.FechaActualizacion, 
                 Items = new List<OrderItemResponse>()
             };
 
