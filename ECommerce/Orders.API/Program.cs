@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddScoped<Orders.API.Services.IOrdersService, Orders.API.Services.OrdersService>();
 
 
 builder.Services.AddControllers();
