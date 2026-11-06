@@ -53,5 +53,35 @@ namespace Users.API.Controllers
             var response = _userService.Login(request);
             return Ok(response);
         }
+        /// <summary>
+        /// Consulta un usuario por su identificador.
+        /// </summary>
+        /// <response code="200">Usuario encontrado.</response>
+        /// <response code="404">USR-007: usuario no encontrado.</response>
+        [HttpGet("{id:guid}")]
+        [ProducesResponseType(typeof(RegisterUserResponse), 200)]
+        [ProducesResponseType(404)]
+        public IActionResult GetById(Guid id)
+        {
+            RegisterUserResponse? response = _userService.GetById(id);
+
+            if (response == null)
+            {
+                return NotFound(new
+                {
+                    type = "about:blank",
+                    title = "Not Found",
+                    status = 404,
+                    detail = "Usuario no encontrado.",
+                    instance = HttpContext.Request.Path.ToString(),
+                    errorCode = "USR-007",
+                    errorMessage = "Usuario no encontrado.",
+                    correlationId =
+                        HttpContext.Response.Headers["X-Correlation-Id"].ToString()
+                });
+            }
+
+            return Ok(response);
+        }
     }
 }
