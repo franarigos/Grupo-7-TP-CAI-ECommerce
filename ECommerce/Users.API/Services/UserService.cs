@@ -100,5 +100,26 @@ namespace Users.API.Services
 
             return response;
         }
+        public RegisterUserResponse? GetById(Guid id)
+        {
+            foreach (User usuario in _usuariosDb)
+            {
+                if (usuario.Id == id)
+                {
+                    RegisterUserResponse response = new RegisterUserResponse();
+
+                    response.Id = usuario.Id;
+                    response.Nombre = usuario.Nombre;
+                    response.Apellido = usuario.Apellido;
+                    response.Email = usuario.Email;
+                    response.FechaRegistro = usuario.FechaRegistro;
+                    response.Activo = usuario.Activo;
+
+                    return response;
+                }
+            }
+
+            return null;
+        }
     }
 }
