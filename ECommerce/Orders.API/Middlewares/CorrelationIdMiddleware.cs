@@ -8,7 +8,8 @@ namespace Orders.API.Middlewares
     public class CorrelationIdMiddleware
     {
         private readonly RequestDelegate _next;
-        private const string CorrelationIdHeaderName = "X-Correlation-Id";
+
+        private const string HeaderName = "X-Correlation-Id";
 
         public CorrelationIdMiddleware(RequestDelegate next)
         {
@@ -17,24 +18,34 @@ namespace Orders.API.Middlewares
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (!context.Request.Headers.TryGetValue(CorrelationIdHeaderName, out var correlationId))
+            string correlationId = "";
+
+            if (context.Request.Headers.TryGetValue(
+                HeaderName, out var valor))
             {
-                correlationId = Guid.NewGuid().ToString();
-                context.Request.Headers.Append(CorrelationIdHeaderName, correlationId);
+                correlationId = valor.ToString();
             }
 
-            context.Items[CorrelationIdHeaderName] = correlationId.ToString();
+            if (string.IsNullOrWhiteSpace(correlationId))
+            {
+                correlationId = Guid.NewGuid().ToString();
+            }
+
+            context.Request.Headers[HeaderName] = correlationId;
+            context.Items[HeaderName] = correlationId;
 
             context.Response.OnStarting(() =>
             {
-                if (!context.Response.Headers.ContainsKey(CorrelationIdHeaderName))
-                {
-                    context.Response.Headers.Append(CorrelationIdHeaderName, correlationId);
-                }
+                context.Response.Headers[HeaderName] =
+                    correlationId;
+
                 return Task.CompletedTask;
             });
 
-            using (LogContext.PushProperty("X-Correlation-Id", correlationId.ToString()))
+            using (LogContext.PushProperty(
+                "CorrelationId", correlationId))
+            using (LogContext.PushProperty(
+                "Endpoint", context.Request.Path.ToString()))
             {
                 await _next(context);
             }
