@@ -1,97 +1,203 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.AspNetCore.Http;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Mvc;
+using Products.API.ExceptionHandlers;
+using Products.API.Middlewares;
+using Products.API.Services;
 using Serilog;
 using Serilog.Formatting.Json;
-using System;
-using System.Text.Json;
-using Products.API.ExceptionHandlers;
-using Products.API.Services;
-using Products.API.Middlewares;
 
 Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Servicio", "Products.API")
     .WriteTo.Console()
-    .WriteTo.File(new JsonFormatter(), "logs/products-api-log.json", rollingInterval: RollingInterval.Day)
-    .CreateBootstrapLogger();
+    .WriteTo.File(
+        new JsonFormatter(),
+        "logs/products-api-.json",
+        rollingInterval: RollingInterval.Day)
+    .CreateLogger();
 
 try
 {
-    var builder = WebApplication.CreateBuilder(args);
+    WebApplicationBuilder builder =
+        WebApplication.CreateBuilder(args);
 
     builder.Host.UseSerilog();
 
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+        {
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                List<string> mensajes = new List<string>();
+
+                foreach (var entry in context.ModelState.Values)
+                {
+                    foreach (var error in entry.Errors)
+                    {
+                        if (!string.IsNullOrWhiteSpace(
+                            error.ErrorMessage))
+                        {
+                            mensajes.Add(error.ErrorMessage);
+                        }
+                    }
+                }
+
+                string mensaje = string.Join("; ", mensajes);
+
+                if (string.IsNullOrWhiteSpace(mensaje))
+                {
+                    mensaje = "Los datos del producto son inválidos.";
+                }
+
+                string correlationId =
+                    context.HttpContext.Items[
+                        "CorrelationId"]?.ToString()
+                    ?? context.HttpContext.TraceIdentifier;
+
+                Log.Warning(
+                    "Error de validación {ErrorCode}: {Mensaje}",
+                    "PRD-002",
+                    mensaje);
+
+                BadRequestObjectResult resultado =
+                    new BadRequestObjectResult(new
+                    {
+                        type = "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+                        title = "Bad Request",
+                        status = 400,
+                        detail = "Los datos del producto son inválidos.",
+                        instance = context.HttpContext.Request.Path.Value,
+                        errorCode = "PRD-002",
+                        errorMessage = mensaje,
+                        correlationId = correlationId
+                    });
+
+                resultado.ContentTypes.Add(
+                    "application/problem+json");
+
+                return resultado;
+            };
+        });
+
     builder.Services.AddEndpointsApiExplorer();
 
-    builder.Services.AddSwaggerGen(c =>
+    builder.Services.AddSwaggerGen(options =>
     {
-        var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-        var xmlPath = System.IO.Path.Combine(AppContext.BaseDirectory, xmlFile);
-        c.IncludeXmlComments(xmlPath);
+        string xmlFile =
+            Assembly.GetExecutingAssembly().GetName().Name
+            + ".xml";
+
+        string xmlPath =
+            Path.Combine(AppContext.BaseDirectory, xmlFile);
+
+        if (File.Exists(xmlPath))
+        {
+            options.IncludeXmlComments(xmlPath);
+        }
     });
 
     builder.Services.AddHttpContextAccessor();
 
-    builder.Services.AddExceptionHandler<NotFoundExceptionHandler>();
-    builder.Services.AddExceptionHandler<BusinessRuleExceptionHandler>();
-    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
-    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+    builder.Services.AddHttpClient("OrdersApi", client =>
+    {
+        string? url =
+            builder.Configuration["Services:OrdersApi"];
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            throw new InvalidOperationException(
+                "Falta configurar Services:OrdersApi.");
+        }
+
+        client.BaseAddress = new Uri(url);
+        client.Timeout = TimeSpan.FromSeconds(10);
+    });
+
+    builder.Services.AddScoped<ProductService>();
+
+    builder.Services.AddExceptionHandler<
+        NotFoundExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        BusinessRuleExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        ValidationExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        GlobalExceptionHandler>();
+
     builder.Services.AddProblemDetails();
 
     builder.Services.AddHealthChecks();
 
-    builder.Services.AddScoped<ProductService>();
-
-    var app = builder.Build();
+    WebApplication app = builder.Build();
 
     app.UseMiddleware<CorrelationIdMiddleware>();
 
     app.UseSerilogRequestLogging(options =>
     {
-        options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
-        {
-            diagnosticContext.Set("CorrelationId", httpContext.Items["CorrelationId"]);
-            diagnosticContext.Set("Endpoint", httpContext.Request.Path);
-        };
-    });
+        options.EnrichDiagnosticContext =
+            (diagnosticContext, httpContext) =>
+            {
+                diagnosticContext.Set(
+                    "Endpoint",
+                    httpContext.Request.Path.ToString());
 
-    if (app.Environment.IsDevelopment())
-    {
-        app.UseSwagger();
-        app.UseSwaggerUI();
-    }
+                diagnosticContext.Set(
+                    "CorrelationId",
+                    httpContext.Items[
+                        "CorrelationId"]?.ToString());
+            };
+    });
 
     app.UseExceptionHandler();
 
-    var healthCheckOptions = new HealthCheckOptions
-    {
-        ResponseWriter = async (context, report) =>
-        {
-            context.Response.ContentType = "application/json";
-            var response = new { estado = report.Status.ToString() };
-            await context.Response.WriteAsync(JsonSerializer.Serialize(response));
-        }
-    };
+    app.UseSwagger();
+    app.UseSwaggerUI();
 
-    app.MapHealthChecks("/health", healthCheckOptions);
-    app.MapHealthChecks("/health/ready", healthCheckOptions);
-    app.MapHealthChecks("/health/live", healthCheckOptions);
+    HealthCheckOptions healthOptions =
+        new HealthCheckOptions
+        {
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType =
+                    "application/json";
+
+                await context.Response.WriteAsync(
+                    JsonSerializer.Serialize(new
+                    {
+                        estado = report.Status.ToString()
+                    }));
+            }
+        };
+
+    app.MapHealthChecks("/health", healthOptions);
+
+    app.MapHealthChecks("/health/ready", healthOptions);
+
+    app.MapHealthChecks("/health/live", healthOptions);
 
     app.UseHttpsRedirection();
+
     app.UseAuthorization();
+
     app.MapControllers();
 
     app.Run();
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "El microservicio Products.API se cerro inesperadamente");
+    Log.Fatal(
+        ex,
+        "Error inesperado al iniciar Products.API");
+
+    throw;
 }
 finally
 {
