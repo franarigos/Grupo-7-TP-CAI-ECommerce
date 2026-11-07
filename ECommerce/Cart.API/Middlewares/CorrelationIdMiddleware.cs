@@ -1,13 +1,17 @@
-﻿using Microsoft.AspNetCore.Http;
-using System;
+﻿using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Serilog;
+using Serilog.Context;
 
 namespace Cart.API.Middlewares
 {
     public class CorrelationIdMiddleware
     {
         private readonly RequestDelegate _next;
-        private const string CorrelationIdHeader = "X-Correlation-Id";
+
+        private const string CorrelationIdHeader =
+            "X-Correlation-Id";
 
         public CorrelationIdMiddleware(RequestDelegate next)
         {
@@ -16,17 +20,42 @@ namespace Cart.API.Middlewares
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (!context.Request.Headers.TryGetValue(CorrelationIdHeader, out var correlationId))
+            string correlationId =
+                context.Request.Headers[
+                    CorrelationIdHeader].ToString();
+
+            if (string.IsNullOrWhiteSpace(correlationId))
             {
                 correlationId = Guid.NewGuid().ToString();
-                context.Request.Headers.TryAdd(CorrelationIdHeader, correlationId);
             }
 
-            context.Response.Headers.TryAdd(CorrelationIdHeader, correlationId);
+            context.Request.Headers[CorrelationIdHeader] =
+                correlationId;
 
-            context.Items["CorrelationId"] = correlationId.ToString();
+            context.Items["CorrelationId"] = correlationId;
 
-            await _next(context);
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers[CorrelationIdHeader] =
+                    correlationId;
+
+                return Task.CompletedTask;
+            });
+
+            using (LogContext.PushProperty(
+                "CorrelationId",
+                correlationId))
+            using (LogContext.PushProperty(
+                "Endpoint",
+                context.Request.Path.ToString()))
+            {
+                Log.Information(
+                    "Inicio de solicitud {Metodo} {Endpoint}",
+                    context.Request.Method,
+                    context.Request.Path.ToString());
+
+                await _next(context);
+            }
         }
     }
 }
