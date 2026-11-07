@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -5,11 +6,14 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Orders.API.Data;
+using Orders.API.DTOs;
 using Orders.API.ExceptionHandlers;
+using Orders.API.HealthChecks;
 using Orders.API.Middlewares;
 using Orders.API.Services;
 using Serilog;
+using Serilog.Events;
 using Serilog.Formatting.Json;
 
 Log.Logger = new LoggerConfiguration()
@@ -24,7 +28,8 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    var builder = WebApplication.CreateBuilder(args);
+    WebApplicationBuilder builder =
+        WebApplication.CreateBuilder(args);
 
     builder.Host.UseSerilog();
 
@@ -35,10 +40,9 @@ try
             {
                 List<string> mensajes = new List<string>();
 
-                foreach (ModelStateEntry entry
-                    in context.ModelState.Values)
+                foreach (var entry in context.ModelState.Values)
                 {
-                    foreach (ModelError error in entry.Errors)
+                    foreach (var error in entry.Errors)
                     {
                         if (!string.IsNullOrWhiteSpace(
                             error.ErrorMessage))
@@ -48,11 +52,11 @@ try
                     }
                 }
 
-                string detalle = string.Join("; ", mensajes);
+                string mensaje = string.Join("; ", mensajes);
 
-                if (string.IsNullOrWhiteSpace(detalle))
+                if (string.IsNullOrWhiteSpace(mensaje))
                 {
-                    detalle = "Los datos de la orden son invalidos.";
+                    mensaje = "Los datos de la orden son inválidos.";
                 }
 
                 string correlationId =
@@ -61,21 +65,31 @@ try
                     ?? context.HttpContext.TraceIdentifier;
 
                 Log.Warning(
-                    "Validacion de orden: {errorCode} {Detalle}",
+                    "Validación incorrecta {ErrorCode}: {Mensaje}",
                     "ORD-002",
-                    detalle);
+                    mensaje);
 
-                return new BadRequestObjectResult(new
-                {
-                    type = "https://tools.ietf.org/html/rfc7231#section-6.5.1",
-                    title = "Bad Request",
-                    status = 400,
-                    detail = "Los datos de la solicitud son invalidos.",
-                    instance = context.HttpContext.Request.Path.Value,
-                    errorCode = "ORD-002",
-                    errorMessage = detalle,
-                    correlationId = correlationId
-                });
+                ApiErrorResponse errorResponse =
+                    new ApiErrorResponse
+                    {
+                        Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+                        Title = "Bad Request",
+                        Status = 400,
+                        Detail = "Los datos de la orden son inválidos.",
+                        Instance =
+                            context.HttpContext.Request.Path.ToString(),
+                        ErrorCode = "ORD-002",
+                        ErrorMessage = mensaje,
+                        CorrelationId = correlationId
+                    };
+
+                BadRequestObjectResult resultado =
+                    new BadRequestObjectResult(errorResponse);
+
+                resultado.ContentTypes.Add(
+                    "application/problem+json");
+
+                return resultado;
             };
         });
 
@@ -97,11 +111,11 @@ try
     });
 
     builder.Services.AddHttpContextAccessor();
-    builder.Services.AddScoped<IOrdersService, OrdersService>();
 
     builder.Services.AddHttpClient("UsersApi", client =>
     {
-        string url = builder.Configuration["Services:UsersApi"];
+        string url =
+            builder.Configuration["Services:UsersApi"];
 
         if (string.IsNullOrWhiteSpace(url))
         {
@@ -115,7 +129,8 @@ try
 
     builder.Services.AddHttpClient("ProductsApi", client =>
     {
-        string url = builder.Configuration["Services:ProductsApi"];
+        string url =
+            builder.Configuration["Services:ProductsApi"];
 
         if (string.IsNullOrWhiteSpace(url))
         {
@@ -127,20 +142,63 @@ try
         client.Timeout = TimeSpan.FromSeconds(10);
     });
 
-    builder.Services.AddExceptionHandler<NotFoundExceptionHandler>();
-    builder.Services.AddExceptionHandler<BusinessRuleExceptionHandler>();
-    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
-    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+    builder.Services.AddSingleton<DatabaseInitializer>();
+
+    builder.Services.AddScoped<OrderRepository>();
+
+    builder.Services.AddScoped<
+        IOrdersService, OrdersService>();
+
+    builder.Services.AddExceptionHandler<
+        NotFoundExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        BusinessRuleExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        ValidationExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        GlobalExceptionHandler>();
 
     builder.Services.AddProblemDetails();
-    builder.Services.AddHealthChecks();
 
-    var app = builder.Build();
+    builder.Services.AddHealthChecks()
+        .AddCheck<SqliteHealthCheck>("sqlite-db");
+
+    WebApplication app = builder.Build();
+
+    using (IServiceScope scope =
+        app.Services.CreateScope())
+    {
+        DatabaseInitializer initializer =
+            scope.ServiceProvider
+                .GetRequiredService<DatabaseInitializer>();
+
+        initializer.Initialize();
+    }
 
     app.UseMiddleware<CorrelationIdMiddleware>();
 
     app.UseSerilogRequestLogging(options =>
     {
+        options.GetLevel =
+            (httpContext, elapsed, exception) =>
+            {
+                if (exception != null ||
+                    httpContext.Response.StatusCode >= 500)
+                {
+                    return LogEventLevel.Error;
+                }
+
+                if (httpContext.Response.StatusCode >= 400)
+                {
+                    return LogEventLevel.Warning;
+                }
+
+                return LogEventLevel.Information;
+            };
+
         options.EnrichDiagnosticContext =
             (diagnosticContext, httpContext) =>
             {
@@ -160,25 +218,47 @@ try
     app.UseSwagger();
     app.UseSwaggerUI();
 
-    var healthOptions = new HealthCheckOptions
-    {
-        ResponseWriter = async (context, report) =>
+    HealthCheckOptions healthOptions =
+        new HealthCheckOptions
         {
-            context.Response.ContentType = "application/json";
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType =
+                    "application/json";
 
-            await context.Response.WriteAsync(
-                JsonSerializer.Serialize(new
-                {
-                    estado = report.Status.ToString()
-                }));
-        }
-    };
+                await context.Response.WriteAsync(
+                    JsonSerializer.Serialize(new
+                    {
+                        estado = report.Status.ToString()
+                    }));
+            }
+        };
 
     app.MapHealthChecks("/health", healthOptions);
+
     app.MapHealthChecks("/health/ready", healthOptions);
-    app.MapHealthChecks("/health/live", healthOptions);
+
+    HealthCheckOptions liveOptions =
+        new HealthCheckOptions
+        {
+            Predicate = registration => false,
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType =
+                    "application/json";
+
+                await context.Response.WriteAsync(
+                    JsonSerializer.Serialize(new
+                    {
+                        estado = report.Status.ToString()
+                    }));
+            }
+        };
+
+    app.MapHealthChecks("/health/live", liveOptions);
 
     app.UseHttpsRedirection();
+
     app.UseAuthorization();
 
     app.MapControllers();
@@ -187,7 +267,10 @@ try
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "Error al iniciar Orders.API");
+    Log.Fatal(
+        ex,
+        "Error al iniciar Orders.API");
+
     throw;
 }
 finally

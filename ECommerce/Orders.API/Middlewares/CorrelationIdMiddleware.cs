@@ -1,7 +1,9 @@
-﻿using Microsoft.AspNetCore.Http;
-using Serilog.Context;
+﻿
 using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Serilog;
+using Serilog.Context;
 
 namespace Orders.API.Middlewares
 {
@@ -18,13 +20,8 @@ namespace Orders.API.Middlewares
 
         public async Task InvokeAsync(HttpContext context)
         {
-            string correlationId = "";
-
-            if (context.Request.Headers.TryGetValue(
-                HeaderName, out var valor))
-            {
-                correlationId = valor.ToString();
-            }
+            string correlationId =
+                context.Request.Headers[HeaderName].ToString();
 
             if (string.IsNullOrWhiteSpace(correlationId))
             {
@@ -47,6 +44,11 @@ namespace Orders.API.Middlewares
             using (LogContext.PushProperty(
                 "Endpoint", context.Request.Path.ToString()))
             {
+                Log.Information(
+                    "Inicio de solicitud {Metodo} {Endpoint}",
+                    context.Request.Method,
+                    context.Request.Path.ToString());
+
                 await _next(context);
             }
         }

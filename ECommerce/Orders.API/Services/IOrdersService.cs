@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,11 +13,12 @@ namespace Orders.API.Services
             CreateOrderRequest request,
             CancellationToken cancellationToken);
 
-        OrderResponse ObtenerOrdenPorId(Guid id);
+        Task<OrderResponse> ObtenerOrdenPorIdAsync(Guid id);
 
-        List<OrderResponse> ObtenerOrdenes(Guid? usuarioId);
+        Task<List<OrderResponse>> ObtenerOrdenesAsync(
+            Guid? usuarioId);
 
-        OrderResponse ActualizarEstado(
+        Task<OrderResponse> ActualizarEstadoAsync(
             Guid id,
             UpdateOrderStatusRequest request);
     }

@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
@@ -6,24 +7,25 @@ using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Orders.API.Data;
 using Orders.API.DTOs;
-using Orders.API.Models;
 using Orders.API.Exceptions;
+using Orders.API.Models;
 
 namespace Orders.API.Services
 {
     public class OrdersService : IOrdersService
     {
-        private static readonly List<Order> _ordenes = new List<Order>();
-        private static readonly object _candado = new object();
-
+        private readonly OrderRepository _repository;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
         public OrdersService(
+            OrderRepository repository,
             IHttpClientFactory httpClientFactory,
             IHttpContextAccessor httpContextAccessor)
         {
+            _repository = repository;
             _httpClientFactory = httpClientFactory;
             _httpContextAccessor = httpContextAccessor;
         }
@@ -39,7 +41,7 @@ namespace Orders.API.Services
             {
                 throw new ValidationException(
                     ErrorCodes.ORD_002,
-                    "Los datos de la orden son invalidos.");
+                    "Los datos de la orden son inválidos.");
             }
 
             foreach (OrderItemRequest item in request.Items)
@@ -50,7 +52,7 @@ namespace Orders.API.Services
                 {
                     throw new ValidationException(
                         ErrorCodes.ORD_002,
-                        "Los productos y las cantidades son invalidos.");
+                        "Los productos y las cantidades son inválidos.");
                 }
             }
 
@@ -68,22 +70,37 @@ namespace Orders.API.Services
                 Total = 0m
             };
 
-            foreach (OrderItemRequest itemReq in request.Items)
+            foreach (OrderItemRequest itemRequest in request.Items)
             {
-                ProductApiResponse producto =
-                    await ObtenerProductoAsync(
-                        itemReq.ProductoId,
-                        cancellationToken);
+                OrderItem existente = null;
 
-                int cantidadTotal = itemReq.Cantidad;
-
-                foreach (OrderItem anterior in nuevaOrden.Items)
+                foreach (OrderItem item in nuevaOrden.Items)
                 {
-                    if (anterior.ProductoId == itemReq.ProductoId)
+                    if (item.ProductoId == itemRequest.ProductoId)
                     {
-                        cantidadTotal += anterior.Cantidad;
+                        existente = item;
+                        break;
                     }
                 }
+
+                long cantidadTotal = itemRequest.Cantidad;
+
+                if (existente != null)
+                {
+                    cantidadTotal += existente.Cantidad;
+                }
+
+                if (cantidadTotal > int.MaxValue)
+                {
+                    throw new ValidationException(
+                        ErrorCodes.ORD_002,
+                        "La cantidad solicitada es inválida.");
+                }
+
+                ProductApiResponse producto =
+                    await ObtenerProductoAsync(
+                        itemRequest.ProductoId,
+                        cancellationToken);
 
                 if (cantidadTotal > producto.Stock)
                 {
@@ -92,65 +109,67 @@ namespace Orders.API.Services
                         $"Stock insuficiente para '{producto.Nombre}'. Disponible: {producto.Stock}, solicitado: {cantidadTotal}.");
                 }
 
-                OrderItem nuevoItem = new OrderItem
+                if (existente != null)
                 {
-                    ProductoId = itemReq.ProductoId,
-                    Cantidad = itemReq.Cantidad,
-                    PrecioUnitario = producto.Precio
-                };
-
-                nuevaOrden.Items.Add(nuevoItem);
-
-                nuevaOrden.Total +=
-                    nuevoItem.Cantidad * nuevoItem.PrecioUnitario;
-            }
-
-            lock (_candado)
-            {
-                _ordenes.Add(nuevaOrden);
-                return MapearA_Response(nuevaOrden);
-            }
-        }
-
-        public OrderResponse ObtenerOrdenPorId(Guid id)
-        {
-            lock (_candado)
-            {
-                foreach (Order orden in _ordenes)
+                    existente.Cantidad = (int)cantidadTotal;
+                }
+                else
                 {
-                    if (orden.Id == id)
+                    OrderItem nuevoItem = new OrderItem
                     {
-                        return MapearA_Response(orden);
-                    }
+                        ProductoId = itemRequest.ProductoId,
+                        Cantidad = (int)cantidadTotal,
+                        PrecioUnitario = producto.Precio
+                    };
+
+                    nuevaOrden.Items.Add(nuevoItem);
                 }
             }
 
-            throw new NotFoundException(
-                ErrorCodes.ORD_001,
-                "Orden no encontrada.");
+            foreach (OrderItem item in nuevaOrden.Items)
+            {
+                nuevaOrden.Total +=
+                    item.Cantidad * item.PrecioUnitario;
+            }
+
+            await _repository.CreateAsync(nuevaOrden);
+
+            return MapearAResponse(nuevaOrden);
         }
 
-        public List<OrderResponse> ObtenerOrdenes(Guid? usuarioId)
+        public async Task<OrderResponse> ObtenerOrdenPorIdAsync(
+            Guid id)
         {
+            Order orden = await _repository.GetByIdAsync(id);
+
+            if (orden == null)
+            {
+                throw new NotFoundException(
+                    ErrorCodes.ORD_001,
+                    "Orden no encontrada.");
+            }
+
+            return MapearAResponse(orden);
+        }
+
+        public async Task<List<OrderResponse>> ObtenerOrdenesAsync(
+            Guid? usuarioId)
+        {
+            List<Order> ordenes =
+                await _repository.GetAllAsync(usuarioId);
+
             List<OrderResponse> resultado =
                 new List<OrderResponse>();
 
-            lock (_candado)
+            foreach (Order orden in ordenes)
             {
-                foreach (Order orden in _ordenes)
-                {
-                    if (usuarioId == null ||
-                        orden.UsuarioId == usuarioId)
-                    {
-                        resultado.Add(MapearA_Response(orden));
-                    }
-                }
+                resultado.Add(MapearAResponse(orden));
             }
 
             return resultado;
         }
 
-        public OrderResponse ActualizarEstado(
+        public async Task<OrderResponse> ActualizarEstadoAsync(
             Guid id,
             UpdateOrderStatusRequest request)
         {
@@ -160,39 +179,52 @@ namespace Orders.API.Services
             {
                 throw new ValidationException(
                     ErrorCodes.ORD_002,
-                    "El estado ingresado es invalido.");
+                    "El estado ingresado es inválido.");
             }
 
-            lock (_candado)
+            Order orden = await _repository.GetByIdAsync(id);
+
+            if (orden == null)
             {
-                foreach (Order orden in _ordenes)
-                {
-                    if (orden.Id == id)
-                    {
-                        if (orden.Estado == request.Estado)
-                        {
-                            return MapearA_Response(orden);
-                        }
-
-                        if (!PuedeCambiarEstado(
-                            orden.Estado, request.Estado))
-                        {
-                            throw new BusinessRuleException(
-                                ErrorCodes.ORD_006,
-                                $"Una orden en estado '{orden.Estado}' no puede pasar a '{request.Estado}'.");
-                        }
-
-                        orden.Estado = request.Estado;
-                        orden.FechaActualizacion = DateTime.UtcNow;
-
-                        return MapearA_Response(orden);
-                    }
-                }
+                throw new NotFoundException(
+                    ErrorCodes.ORD_001,
+                    "Orden no encontrada.");
             }
 
-            throw new NotFoundException(
-                ErrorCodes.ORD_001,
-                "Orden no encontrada.");
+            if (orden.Estado == request.Estado)
+            {
+                return MapearAResponse(orden);
+            }
+
+            if (!PuedeCambiarEstado(
+                orden.Estado,
+                request.Estado))
+            {
+                throw new BusinessRuleException(
+                    ErrorCodes.ORD_006,
+                    $"Una orden en estado '{orden.Estado}' no puede pasar a '{request.Estado}'.");
+            }
+
+            DateTime fecha = DateTime.UtcNow;
+
+            bool actualizado =
+                await _repository.UpdateStatusAsync(
+                    id,
+                    orden.Estado,
+                    request.Estado,
+                    fecha);
+
+            if (!actualizado)
+            {
+                throw new BusinessRuleException(
+                    ErrorCodes.ORD_006,
+                    "El estado de la orden fue modificado por otra solicitud.");
+            }
+
+            orden.Estado = request.Estado;
+            orden.FechaActualizacion = fecha;
+
+            return MapearAResponse(orden);
         }
 
         private static bool EsEstadoValido(string estado)
@@ -244,7 +276,8 @@ namespace Orders.API.Services
 
             using HttpResponseMessage respuesta =
                 await cliente.SendAsync(
-                    solicitud, cancellationToken);
+                    solicitud,
+                    cancellationToken);
 
             if (respuesta.StatusCode == HttpStatusCode.NotFound)
             {
@@ -276,7 +309,8 @@ namespace Orders.API.Services
 
             using HttpResponseMessage respuesta =
                 await cliente.SendAsync(
-                    solicitud, cancellationToken);
+                    solicitud,
+                    cancellationToken);
 
             if (respuesta.StatusCode == HttpStatusCode.NotFound)
             {
@@ -292,14 +326,14 @@ namespace Orders.API.Services
             }
 
             ProductApiResponse producto =
-                await respuesta.Content
-                    .ReadFromJsonAsync<ProductApiResponse>(
-                        cancellationToken: cancellationToken);
+                await respuesta.Content.ReadFromJsonAsync<
+                    ProductApiResponse>(
+                    cancellationToken: cancellationToken);
 
             if (producto == null)
             {
                 throw new InvalidOperationException(
-                    "Products.API devolvio una respuesta vacia.");
+                    "Products.API devolvió una respuesta inválida.");
             }
 
             return producto;
@@ -313,7 +347,8 @@ namespace Orders.API.Services
 
             if (contexto != null &&
                 contexto.Items.TryGetValue(
-                    "X-Correlation-Id", out object valor) &&
+                    "X-Correlation-Id",
+                    out object valor) &&
                 valor != null)
             {
                 solicitud.Headers.TryAddWithoutValidation(
@@ -322,7 +357,8 @@ namespace Orders.API.Services
             }
         }
 
-        private static OrderResponse MapearA_Response(Order orden)
+        private static OrderResponse MapearAResponse(
+            Order orden)
         {
             OrderResponse response = new OrderResponse
             {
