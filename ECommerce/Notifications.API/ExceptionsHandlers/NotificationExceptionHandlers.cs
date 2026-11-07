@@ -1,4 +1,10 @@
-﻿using Microsoft.AspNetCore.Diagnostics;
+﻿
+using System;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http;
 using Notifications.API.DTOs;
 using Notifications.API.Exceptions;
 
@@ -18,20 +24,47 @@ namespace Notifications.API.ExceptionHandlers
 
             response.Title = title;
             response.Status = status;
-            response.Detail = message;
             response.Instance = context.Request.Path.ToString();
             response.ErrorCode = errorCode;
             response.ErrorMessage = message;
             response.CorrelationId = context.TraceIdentifier;
 
-            context.Response.StatusCode = status;
-            context.Response.ContentType = "application/problem+json";
+            if (status == 400)
+            {
+                response.Type =
+                    "https://tools.ietf.org/html/rfc7231#section-6.5.1";
 
-            await System.Text.Json.JsonSerializer.SerializeAsync(
+                response.Detail =
+                    "Los datos enviados no son válidos.";
+            }
+            else if (status == 404)
+            {
+                response.Type =
+                    "https://tools.ietf.org/html/rfc7231#section-6.5.4";
+
+                response.Detail =
+                    "El recurso solicitado no fue encontrado.";
+            }
+            else
+            {
+                response.Type =
+                    "https://tools.ietf.org/html/rfc7231#section-6.6.1";
+
+                response.Detail =
+                    "Ocurrió un error inesperado.";
+            }
+
+            context.Items["ErrorCode"] = errorCode;
+
+            context.Response.StatusCode = status;
+            context.Response.ContentType =
+                "application/problem+json";
+
+            await JsonSerializer.SerializeAsync(
                 context.Response.Body,
                 response,
-                new System.Text.Json.JsonSerializerOptions(
-                    System.Text.Json.JsonSerializerDefaults.Web),
+                new JsonSerializerOptions(
+                    JsonSerializerDefaults.Web),
                 cancellationToken);
         }
     }
@@ -57,7 +90,7 @@ namespace Notifications.API.ExceptionHandlers
             }
 
             _logger.LogWarning(
-                "Recurso no encontrado. {errorCode}: {ErrorMessage}",
+                "Recurso no encontrado {ErrorCode}: {Mensaje}",
                 error.ErrorCode,
                 error.Message);
 
@@ -94,7 +127,7 @@ namespace Notifications.API.ExceptionHandlers
             }
 
             _logger.LogWarning(
-                "Validación incorrecta. {errorCode}: {ErrorMessage}",
+                "Validación incorrecta {ErrorCode}: {Mensaje}",
                 error.ErrorCode,
                 error.Message);
 
@@ -127,7 +160,7 @@ namespace Notifications.API.ExceptionHandlers
         {
             _logger.LogError(
                 exception,
-                "Error inesperado. {errorCode}",
+                "Error inesperado {ErrorCode}",
                 "NTF-004");
 
             await ErrorResponseWriter.WriteAsync(
