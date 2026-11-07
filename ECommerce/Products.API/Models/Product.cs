@@ -8,37 +8,37 @@ namespace Products.API.Models
     public class Product
     {
         /// <summary>
-        /// Identificador único.
+        /// Identificador único del producto.
         /// </summary>
         public Guid Id { get; set; }
 
         /// <summary>
-        /// Requerido, máx. 100 caracteres.
+        /// Nombre obligatorio del producto, de hasta 100 caracteres.
         /// </summary>
-        public string Nombre { get; set; }
+        public string Nombre { get; set; } = string.Empty;
 
         /// <summary>
-        /// Opcional, máx. 500 caracteres.
+        /// Descripción opcional del producto, de hasta 500 caracteres.
         /// </summary>
-        public string Descripcion { get; set; }
+        public string Descripcion { get; set; } = string.Empty;
 
         /// <summary>
-        /// Requerido, mayor a 0.
+        /// Precio del producto, mayor a cero.
         /// </summary>
         public decimal Precio { get; set; }
 
         /// <summary>
-        /// Requerido, mayor o igual a 0.
+        /// Stock disponible, mayor o igual a cero.
         /// </summary>
         public int Stock { get; set; }
 
         /// <summary>
-        /// Requerido.
+        /// Categoría del producto.
         /// </summary>
-        public string Categoria { get; set; }
+        public string Categoria { get; set; } = string.Empty;
 
         /// <summary>
-        /// Asignado automáticamente al crear.
+        /// Fecha UTC asignada automáticamente al crear el producto.
         /// </summary>
         public DateTime FechaCreacion { get; set; }
     }
