@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -5,7 +6,9 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
+using Products.API.Data;
 using Products.API.ExceptionHandlers;
+using Products.API.HealthChecks;
 using Products.API.Middlewares;
 using Products.API.Services;
 using Serilog;
@@ -51,7 +54,8 @@ try
 
                 if (string.IsNullOrWhiteSpace(mensaje))
                 {
-                    mensaje = "Los datos del producto son inválidos.";
+                    mensaje =
+                        "Los datos del producto son inválidos.";
                 }
 
                 string correlationId =
@@ -60,7 +64,7 @@ try
                     ?? context.HttpContext.TraceIdentifier;
 
                 Log.Warning(
-                    "Error de validación {ErrorCode}: {Mensaje}",
+                    "Validación incorrecta {ErrorCode}: {Mensaje}",
                     "PRD-002",
                     mensaje);
 
@@ -118,6 +122,8 @@ try
         client.Timeout = TimeSpan.FromSeconds(10);
     });
 
+    builder.Services.AddSingleton<DatabaseInitializer>();
+    builder.Services.AddScoped<ProductRepository>();
     builder.Services.AddScoped<ProductService>();
 
     builder.Services.AddExceptionHandler<
@@ -134,9 +140,20 @@ try
 
     builder.Services.AddProblemDetails();
 
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks()
+        .AddCheck<SqliteHealthCheck>("sqlite-db");
 
     WebApplication app = builder.Build();
+
+    using (IServiceScope scope =
+        app.Services.CreateScope())
+    {
+        DatabaseInitializer initializer =
+            scope.ServiceProvider
+                .GetRequiredService<DatabaseInitializer>();
+
+        initializer.Initialize();
+    }
 
     app.UseMiddleware<CorrelationIdMiddleware>();
 
@@ -178,10 +195,26 @@ try
         };
 
     app.MapHealthChecks("/health", healthOptions);
-
     app.MapHealthChecks("/health/ready", healthOptions);
 
-    app.MapHealthChecks("/health/live", healthOptions);
+    HealthCheckOptions liveOptions =
+        new HealthCheckOptions
+        {
+            Predicate = registration => false,
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType =
+                    "application/json";
+
+                await context.Response.WriteAsync(
+                    JsonSerializer.Serialize(new
+                    {
+                        estado = report.Status.ToString()
+                    }));
+            }
+        };
+
+    app.MapHealthChecks("/health/live", liveOptions);
 
     app.UseHttpsRedirection();
 

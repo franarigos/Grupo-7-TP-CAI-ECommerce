@@ -1,125 +1,224 @@
-﻿using System.Collections.Generic;
-using Users.API.Models;
+﻿
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Identity;
+using Serilog;
 using Users.API.DTOs;
 using Users.API.Exceptions;
+using Users.API.Models;
 
 namespace Users.API.Services
 {
     public class UserService
     {
-        private static List<User> _usuariosDb = new List<User>();
+        private static readonly List<User> _usuariosDb =
+            new List<User>();
 
-        public RegisterUserResponse Register(RegisterUserRequest request)
+        private static readonly object _candado = new object();
+
+        private readonly PasswordHasher<User> _passwordHasher =
+            new PasswordHasher<User>();
+
+        public RegisterUserResponse Register(
+            RegisterUserRequest request)
         {
-            if (string.IsNullOrEmpty(request.Nombre) ||
-                string.IsNullOrEmpty(request.Apellido) ||
-                string.IsNullOrEmpty(request.Email) ||
-                string.IsNullOrEmpty(request.Password))
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.Nombre) ||
+                string.IsNullOrWhiteSpace(request.Apellido) ||
+                string.IsNullOrWhiteSpace(request.Email) ||
+                string.IsNullOrWhiteSpace(request.Password) ||
+                !new EmailAddressAttribute().IsValid(request.Email))
             {
-                throw new ValidationException("USR-002", "Los datos del usuario son inválidos.");
+                Log.Warning(
+                    "Registro inválido. {errorCode}",
+                    "USR-002");
+
+                throw new ValidationException(
+                    "USR-002",
+                    "Los datos del usuario son inválidos.");
             }
 
-            bool emailExiste = false;
-            foreach (User usuarioExistente in _usuariosDb)
+            string email = request.Email.Trim();
+
+            lock (_candado)
             {
-                if (usuarioExistente.Email == request.Email)
+                foreach (User usuario in _usuariosDb)
                 {
-                    emailExiste = true;
+                    if (string.Equals(
+                        usuario.Email,
+                        email,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log.Warning(
+                            "Email duplicado. {errorCode}",
+                            "USR-001");
+
+                        throw new BusinessRuleException(
+                            "USR-001",
+                            $"El email '{email}' ya está registrado.");
+                    }
                 }
+
+                User nuevoUsuario = new User(
+                    request.Nombre.Trim(),
+                    request.Apellido.Trim(),
+                    email,
+                    string.Empty);
+
+                nuevoUsuario.PasswordHash =
+                    _passwordHasher.HashPassword(
+                        nuevoUsuario,
+                        request.Password);
+
+                _usuariosDb.Add(nuevoUsuario);
+
+                return MapearUsuario(nuevoUsuario);
             }
-
-            if (emailExiste)
-            {
-                throw new BusinessRuleException("USR-001", $"El email '{request.Email}' ya está registrado.");
-            }
-
-            User nuevoUsuario = new User(request.Nombre, request.Apellido, request.Email, request.Password);
-
-            _usuariosDb.Add(nuevoUsuario);
-
-            RegisterUserResponse response = new RegisterUserResponse();
-            response.Id = nuevoUsuario.Id;
-            response.Nombre = nuevoUsuario.Nombre;
-            response.Apellido = nuevoUsuario.Apellido;
-            response.Email = nuevoUsuario.Email;
-            response.FechaRegistro = nuevoUsuario.FechaRegistro;
-            response.Activo = nuevoUsuario.Activo;
-
-            return response;
         }
 
-        public LoginResponseDto Login(LoginRequestDto request)
+        public LoginResponseDto Login(
+            LoginRequestDto request)
         {
-            User? usuarioEncontrado = null;
-
-            foreach (User u in _usuariosDb)
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.Email) ||
+                string.IsNullOrWhiteSpace(request.Password) ||
+                !new EmailAddressAttribute().IsValid(request.Email))
             {
-                if (u.Email == request.Email)
-                {
-                    usuarioEncontrado = u;
-                    break;
-                }
+                Log.Warning(
+                    "Login inválido. {errorCode}",
+                    "USR-002");
+
+                throw new ValidationException(
+                    "USR-002",
+                    "Los datos del usuario son inválidos.");
             }
 
-            if (usuarioEncontrado == null)
-            {
-                throw new UnauthorizedException("USR-003", "Credenciales incorrectas.");
-            }
+            string email = request.Email.Trim();
 
-            if (!usuarioEncontrado.Activo)
+            lock (_candado)
             {
-                if (usuarioEncontrado.IntentosFallidos >= 3)
-                {
-                    throw new ForbiddenException("USR-004", "Su cuenta fue bloqueada por superar el máximo de intentos fallidos. Contacte a soporte.");
-                }
-                else
-                {
-                    throw new ForbiddenException("USR-005", "Su cuenta fue suspendida por razones de seguridad. Contacte a soporte.");
-                }
-            }
+                User? usuarioEncontrado = null;
 
-            if (usuarioEncontrado.PasswordHash != request.Password)
-            {
-                usuarioEncontrado.IntentosFallidos++;
-
-                if (usuarioEncontrado.IntentosFallidos >= 3)
+                foreach (User usuario in _usuariosDb)
                 {
-                    usuarioEncontrado.Activo = false;
+                    if (string.Equals(
+                        usuario.Email,
+                        email,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        usuarioEncontrado = usuario;
+                        break;
+                    }
                 }
 
-                throw new UnauthorizedException("USR-003", "Credenciales incorrectas.");
+                if (usuarioEncontrado == null)
+                {
+                    Log.Warning(
+                        "Credenciales incorrectas. {errorCode}",
+                        "USR-003");
+
+                    throw new UnauthorizedException(
+                        "USR-003",
+                        "Credenciales incorrectas.");
+                }
+
+                if (!usuarioEncontrado.Activo)
+                {
+                    if (usuarioEncontrado.IntentosFallidos >= 3)
+                    {
+                        Log.Warning(
+                            "Usuario bloqueado. {errorCode}",
+                            "USR-004");
+
+                        throw new ForbiddenException(
+                            "USR-004",
+                            "Su cuenta fue bloqueada por superar el máximo de intentos fallidos. Contacte a soporte.");
+                    }
+
+                    Log.Warning(
+                        "Usuario suspendido. {errorCode}",
+                        "USR-005");
+
+                    throw new ForbiddenException(
+                        "USR-005",
+                        "Su cuenta fue suspendida por razones de seguridad. Contacte a soporte.");
+                }
+
+                PasswordVerificationResult resultado =
+                    _passwordHasher.VerifyHashedPassword(
+                        usuarioEncontrado,
+                        usuarioEncontrado.PasswordHash,
+                        request.Password);
+
+                if (resultado == PasswordVerificationResult.Failed)
+                {
+                    usuarioEncontrado.IntentosFallidos++;
+
+                    if (usuarioEncontrado.IntentosFallidos >= 3)
+                    {
+                        usuarioEncontrado.Activo = false;
+
+                        Log.Warning(
+                            "Usuario bloqueado. {errorCode}",
+                            "USR-004");
+
+                        throw new ForbiddenException(
+                            "USR-004",
+                            "Su cuenta fue bloqueada por superar el máximo de intentos fallidos. Contacte a soporte.");
+                    }
+
+                    Log.Warning(
+                        "Credenciales incorrectas. {errorCode}",
+                        "USR-003");
+
+                    throw new UnauthorizedException(
+                        "USR-003",
+                        "Credenciales incorrectas.");
+                }
+
+                usuarioEncontrado.IntentosFallidos = 0;
+
+                LoginResponseDto response = new LoginResponseDto();
+
+                response.Id = usuarioEncontrado.Id;
+                response.Nombre = usuarioEncontrado.Nombre;
+                response.Apellido = usuarioEncontrado.Apellido;
+                response.Email = usuarioEncontrado.Email;
+
+                return response;
             }
-
-            usuarioEncontrado.IntentosFallidos = 0;
-
-            LoginResponseDto response = new LoginResponseDto();
-            response.Id = usuarioEncontrado.Id;
-            response.Nombre = usuarioEncontrado.Nombre;
-            response.Apellido = usuarioEncontrado.Apellido;
-            response.Email = usuarioEncontrado.Email;
-
-            return response;
         }
+
         public RegisterUserResponse? GetById(Guid id)
         {
-            foreach (User usuario in _usuariosDb)
+            lock (_candado)
             {
-                if (usuario.Id == id)
+                foreach (User usuario in _usuariosDb)
                 {
-                    RegisterUserResponse response = new RegisterUserResponse();
-
-                    response.Id = usuario.Id;
-                    response.Nombre = usuario.Nombre;
-                    response.Apellido = usuario.Apellido;
-                    response.Email = usuario.Email;
-                    response.FechaRegistro = usuario.FechaRegistro;
-                    response.Activo = usuario.Activo;
-
-                    return response;
+                    if (usuario.Id == id)
+                    {
+                        return MapearUsuario(usuario);
+                    }
                 }
             }
 
             return null;
+        }
+
+        private RegisterUserResponse MapearUsuario(User usuario)
+        {
+            RegisterUserResponse response =
+                new RegisterUserResponse();
+
+            response.Id = usuario.Id;
+            response.Nombre = usuario.Nombre;
+            response.Apellido = usuario.Apellido;
+            response.Email = usuario.Email;
+            response.FechaRegistro = usuario.FechaRegistro;
+            response.Activo = usuario.Activo;
+
+            return response;
         }
     }
 }

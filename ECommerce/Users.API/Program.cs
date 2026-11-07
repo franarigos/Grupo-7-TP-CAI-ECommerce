@@ -1,66 +1,209 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Serilog;
+
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Text.Json;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Mvc;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Json;
+using Users.API.DTOs;
 using Users.API.ExceptionHandlers;
 using Users.API.Middlewares;
 using Users.API.Services;
 
 Log.Logger = new LoggerConfiguration()
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Servicio", "Users.API")
     .WriteTo.Console()
-    .WriteTo.File(new Serilog.Formatting.Json.JsonFormatter(), "logs/users-api-log.json", rollingInterval: RollingInterval.Day)
+    .WriteTo.File(
+        new JsonFormatter(),
+        "logs/users-api-.json",
+        rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
 try
 {
-    var builder = WebApplication.CreateBuilder(args);
+    WebApplicationBuilder builder =
+        WebApplication.CreateBuilder(args);
 
     builder.Host.UseSerilog();
 
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+        {
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                List<string> mensajes = new List<string>();
+
+                foreach (var entry in context.ModelState.Values)
+                {
+                    foreach (var error in entry.Errors)
+                    {
+                        if (!string.IsNullOrWhiteSpace(
+                            error.ErrorMessage))
+                        {
+                            mensajes.Add(error.ErrorMessage);
+                        }
+                    }
+                }
+
+                string mensaje = string.Join("; ", mensajes);
+
+                if (string.IsNullOrWhiteSpace(mensaje))
+                {
+                    mensaje = "Los datos del usuario son inválidos.";
+                }
+
+                string correlationId =
+                    context.HttpContext.Items[
+                        "CorrelationId"]?.ToString()
+                    ?? context.HttpContext.TraceIdentifier;
+
+                context.HttpContext.Items["ErrorCode"] =
+                    "USR-002";
+
+                Log.Warning(
+                    "Datos inválidos. {errorCode}: {Mensaje}",
+                    "USR-002",
+                    mensaje);
+
+                ApiErrorResponse errorResponse =
+                    new ApiErrorResponse
+                    {
+                        Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+                        Title = "Bad Request",
+                        Status = 400,
+                        Detail = "Los datos del usuario son inválidos.",
+                        Instance =
+                            context.HttpContext.Request.Path.ToString(),
+                        ErrorCode = "USR-002",
+                        ErrorMessage = mensaje,
+                        CorrelationId = correlationId
+                    };
+
+                BadRequestObjectResult resultado =
+                    new BadRequestObjectResult(errorResponse);
+
+                resultado.ContentTypes.Add(
+                    "application/problem+json");
+
+                return resultado;
+            };
+        });
+
     builder.Services.AddEndpointsApiExplorer();
 
-    builder.Services.AddSwaggerGen(c =>
+    builder.Services.AddSwaggerGen(options =>
     {
-        var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+        string xmlFile =
+            Assembly.GetExecutingAssembly().GetName().Name
+            + ".xml";
+
+        string xmlPath =
+            Path.Combine(AppContext.BaseDirectory, xmlFile);
+
         if (File.Exists(xmlPath))
         {
-            c.IncludeXmlComments(xmlPath);
+            options.IncludeXmlComments(xmlPath);
         }
     });
 
     builder.Services.AddHealthChecks();
 
-    builder.Services.AddExceptionHandler<UnauthorizedExceptionHandler>();
-    builder.Services.AddExceptionHandler<ForbiddenExceptionHandler>();
-    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
-    builder.Services.AddExceptionHandler<BusinessRuleExceptionHandler>();
-    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+    builder.Services.AddExceptionHandler<
+        UnauthorizedExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        ForbiddenExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        ValidationExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        BusinessRuleExceptionHandler>();
+
+    builder.Services.AddExceptionHandler<
+        GlobalExceptionHandler>();
 
     builder.Services.AddProblemDetails();
 
     builder.Services.AddSingleton<UserService>();
 
-    var app = builder.Build();
+    WebApplication app = builder.Build();
 
     app.UseMiddleware<CorrelationIdMiddleware>();
 
-    app.UseSerilogRequestLogging();
-
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
+    app.UseSerilogRequestLogging(options =>
     {
-        c.RoutePrefix = "swagger";
+        options.GetLevel = (httpContext, elapsed, exception) =>
+        {
+            if (exception != null ||
+                httpContext.Response.StatusCode >= 500)
+            {
+                return LogEventLevel.Error;
+            }
+
+            if (httpContext.Response.StatusCode >= 400)
+            {
+                return LogEventLevel.Warning;
+            }
+
+            return LogEventLevel.Information;
+        };
+
+        options.EnrichDiagnosticContext =
+            (diagnosticContext, httpContext) =>
+            {
+                diagnosticContext.Set(
+                    "Endpoint",
+                    httpContext.Request.Path.ToString());
+
+                diagnosticContext.Set(
+                    "CorrelationId",
+                    httpContext.Items[
+                        "CorrelationId"]?.ToString());
+
+                if (httpContext.Items["ErrorCode"] != null)
+                {
+                    diagnosticContext.Set(
+                        "errorCode",
+                        httpContext.Items[
+                            "ErrorCode"]?.ToString());
+                }
+            };
     });
 
     app.UseExceptionHandler();
 
-    app.MapHealthChecks("/health");
-    app.MapHealthChecks("/health/ready");
-    app.MapHealthChecks("/health/live");
+    app.UseSwagger();
+    app.UseSwaggerUI();
+
+    HealthCheckOptions healthOptions =
+        new HealthCheckOptions
+        {
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType =
+                    "application/json";
+
+                await context.Response.WriteAsync(
+                    JsonSerializer.Serialize(new
+                    {
+                        estado = report.Status.ToString()
+                    }));
+            }
+        };
+
+    app.MapHealthChecks("/health", healthOptions);
+
+    app.MapHealthChecks("/health/ready", healthOptions);
+
+    app.MapHealthChecks("/health/live", healthOptions);
+
+    app.UseHttpsRedirection();
 
     app.MapControllers();
 
@@ -68,7 +211,11 @@ try
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "Application terminated unexpectedly");
+    Log.Fatal(
+        ex,
+        "Error inesperado al iniciar Users.API");
+
+    throw;
 }
 finally
 {

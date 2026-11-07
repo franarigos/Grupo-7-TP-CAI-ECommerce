@@ -1,10 +1,11 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Products.API.Services;
 using Products.API.DTOs;
+using Products.API.Services;
 
 namespace Products.API.Controllers
 {
@@ -33,12 +34,14 @@ namespace Products.API.Controllers
         [HttpGet]
         [ProducesResponseType(typeof(List<ProductResponse>), 200)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
-        public IActionResult GetProducts(
+        public async Task<IActionResult> GetProducts(
             [FromQuery] string? categoria,
             [FromQuery] string? nombre)
         {
             List<ProductResponse> response =
-                _productService.GetProducts(categoria, nombre);
+                await _productService.GetProductsAsync(
+                    categoria,
+                    nombre);
 
             return Ok(response);
         }
@@ -46,7 +49,7 @@ namespace Products.API.Controllers
         /// <summary>
         /// Obtiene un producto por ID.
         /// </summary>
-        /// <param name="id">ID del producto.</param>
+        /// <param name="id">Identificador del producto.</param>
         /// <response code="200">Producto encontrado.</response>
         /// <response code="404">PRD-001: Producto no encontrado.</response>
         /// <response code="500">PRD-005: Error interno.</response>
@@ -54,10 +57,10 @@ namespace Products.API.Controllers
         [ProducesResponseType(typeof(ProductResponse), 200)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
-        public IActionResult GetProduct(Guid id)
+        public async Task<IActionResult> GetProduct(Guid id)
         {
             ProductResponse response =
-                _productService.GetProductById(id);
+                await _productService.GetProductByIdAsync(id);
 
             return Ok(response);
         }
@@ -93,11 +96,11 @@ namespace Products.API.Controllers
         [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 409)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
-        public IActionResult CreateProduct(
+        public async Task<IActionResult> CreateProduct(
             [FromBody] ProductRequest request)
         {
             ProductResponse response =
-                _productService.CreateProduct(request);
+                await _productService.CreateProductAsync(request);
 
             return CreatedAtAction(
                 nameof(GetProduct),
@@ -106,9 +109,9 @@ namespace Products.API.Controllers
         }
 
         /// <summary>
-        /// Actualiza un producto.
+        /// Actualiza un producto existente.
         /// </summary>
-        /// <param name="id">ID del producto.</param>
+        /// <param name="id">Identificador del producto.</param>
         /// <param name="request">Datos actualizados.</param>
         /// <response code="200">Producto actualizado.</response>
         /// <response code="400">PRD-002: Datos inválidos.</response>
@@ -119,12 +122,12 @@ namespace Products.API.Controllers
         [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
-        public IActionResult UpdateProduct(
+        public async Task<IActionResult> UpdateProduct(
             Guid id,
             [FromBody] ProductRequest request)
         {
             ProductResponse response =
-                _productService.UpdateProduct(id, request);
+                await _productService.UpdateProductAsync(id, request);
 
             return Ok(response);
         }
@@ -140,7 +143,7 @@ namespace Products.API.Controllers
         ///   "errorMessage": "El producto tiene órdenes activas y no puede eliminarse."
         /// }
         /// </remarks>
-        /// <param name="id">ID del producto.</param>
+        /// <param name="id">Identificador del producto.</param>
         /// <param name="cancellationToken">Token de cancelación.</param>
         /// <response code="204">Producto eliminado.</response>
         /// <response code="404">PRD-001: Producto no encontrado.</response>

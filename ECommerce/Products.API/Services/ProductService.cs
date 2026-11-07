@@ -1,10 +1,12 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Products.API.Data;
 using Products.API.DTOs;
 using Products.API.Exceptions;
 using Products.API.Models;
@@ -13,148 +15,163 @@ namespace Products.API.Services
 {
     public class ProductService
     {
-        private static readonly List<Product> _productos =
-            new List<Product>();
-
-        private static readonly object _candado = new object();
-
+        private readonly ProductRepository _repository;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
         public ProductService(
+            ProductRepository repository,
             IHttpClientFactory httpClientFactory,
             IHttpContextAccessor httpContextAccessor)
         {
+            _repository = repository;
             _httpClientFactory = httpClientFactory;
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public List<ProductResponse> GetProducts(
+        public async Task<List<ProductResponse>> GetProductsAsync(
             string? categoria,
             string? nombre)
         {
+            List<Product> productos =
+                await _repository.GetAllAsync();
+
             List<ProductResponse> resultado =
                 new List<ProductResponse>();
 
-            lock (_candado)
+            foreach (Product producto in productos)
             {
-                foreach (Product producto in _productos)
+                bool coincideCategoria =
+                    string.IsNullOrWhiteSpace(categoria) ||
+                    string.Equals(
+                        producto.Categoria,
+                        categoria,
+                        StringComparison.OrdinalIgnoreCase);
+
+                bool coincideNombre =
+                    string.IsNullOrWhiteSpace(nombre) ||
+                    producto.Nombre.Contains(
+                        nombre,
+                        StringComparison.OrdinalIgnoreCase);
+
+                if (coincideCategoria && coincideNombre)
                 {
-                    bool coincideCategoria =
-                        string.IsNullOrWhiteSpace(categoria) ||
-                        string.Equals(
-                            producto.Categoria,
-                            categoria,
-                            StringComparison.OrdinalIgnoreCase);
-
-                    bool coincideNombre =
-                        string.IsNullOrWhiteSpace(nombre) ||
-                        producto.Nombre.Contains(
-                            nombre,
-                            StringComparison.OrdinalIgnoreCase);
-
-                    if (coincideCategoria && coincideNombre)
-                    {
-                        resultado.Add(MapToResponse(producto));
-                    }
+                    resultado.Add(MapToResponse(producto));
                 }
             }
 
             return resultado;
         }
 
-        public ProductResponse GetProductById(Guid id)
+        public async Task<ProductResponse> GetProductByIdAsync(
+            Guid id)
         {
-            lock (_candado)
+            Product? producto =
+                await _repository.GetByIdAsync(id);
+
+            if (producto == null)
             {
-                foreach (Product producto in _productos)
-                {
-                    if (producto.Id == id)
-                    {
-                        return MapToResponse(producto);
-                    }
-                }
+                throw new NotFoundException(
+                    "PRD-001",
+                    "Producto no encontrado.");
             }
 
-            throw new NotFoundException(
-                "PRD-001",
-                "Producto no encontrado.");
+            return MapToResponse(producto);
         }
 
-        public ProductResponse CreateProduct(ProductRequest request)
+        public async Task<ProductResponse> CreateProductAsync(
+            ProductRequest request)
         {
             ValidarProducto(request);
 
-            lock (_candado)
+            string nombre = request.Nombre.Trim();
+            string categoria = request.Categoria.Trim();
+
+            List<Product> productos =
+                await _repository.GetAllAsync();
+
+            foreach (Product producto in productos)
             {
-                foreach (Product producto in _productos)
+                if (string.Equals(
+                        producto.Nombre,
+                        nombre,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(
+                        producto.Categoria,
+                        categoria,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    if (string.Equals(
-                            producto.Nombre,
-                            request.Nombre,
-                            StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(
-                            producto.Categoria,
-                            request.Categoria,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new BusinessRuleException(
-                            "PRD-003",
-                            $"Ya existe un producto con ese nombre en la categoría '{request.Categoria}'.");
-                    }
+                    throw new BusinessRuleException(
+                        "PRD-003",
+                        $"Ya existe un producto con ese nombre en la categoría '{categoria}'.");
                 }
-
-                Product nuevoProducto = new Product
-                {
-                    Id = Guid.NewGuid(),
-                    Nombre = request.Nombre,
-                    Descripcion = request.Descripcion ?? string.Empty,
-                    Precio = request.Precio,
-                    Stock = request.Stock,
-                    Categoria = request.Categoria,
-                    FechaCreacion = DateTime.UtcNow
-                };
-
-                _productos.Add(nuevoProducto);
-
-                return MapToResponse(nuevoProducto);
             }
+
+            Product nuevoProducto = new Product
+            {
+                Id = Guid.NewGuid(),
+                Nombre = nombre,
+                Descripcion = request.Descripcion ?? string.Empty,
+                Precio = request.Precio,
+                Stock = request.Stock,
+                Categoria = categoria,
+                FechaCreacion = DateTime.UtcNow
+            };
+
+            await _repository.CreateAsync(nuevoProducto);
+
+            return MapToResponse(nuevoProducto);
         }
 
-        public ProductResponse UpdateProduct(
+        public async Task<ProductResponse> UpdateProductAsync(
             Guid id,
             ProductRequest request)
         {
-            lock (_candado)
+            Product? producto =
+                await _repository.GetByIdAsync(id);
+
+            if (producto == null)
             {
-                foreach (Product producto in _productos)
-                {
-                    if (producto.Id == id)
-                    {
-                        ValidarProducto(request);
-
-                        producto.Nombre = request.Nombre;
-                        producto.Descripcion =
-                            request.Descripcion ?? string.Empty;
-                        producto.Precio = request.Precio;
-                        producto.Stock = request.Stock;
-                        producto.Categoria = request.Categoria;
-
-                        return MapToResponse(producto);
-                    }
-                }
+                throw new NotFoundException(
+                    "PRD-001",
+                    "Producto no encontrado.");
             }
 
-            throw new NotFoundException(
-                "PRD-001",
-                "Producto no encontrado.");
+            ValidarProducto(request);
+
+            producto.Nombre = request.Nombre.Trim();
+            producto.Descripcion =
+                request.Descripcion ?? string.Empty;
+            producto.Precio = request.Precio;
+            producto.Stock = request.Stock;
+            producto.Categoria = request.Categoria.Trim();
+
+            bool actualizado =
+                await _repository.UpdateAsync(producto);
+
+            if (!actualizado)
+            {
+                throw new NotFoundException(
+                    "PRD-001",
+                    "Producto no encontrado.");
+            }
+
+            return MapToResponse(producto);
         }
 
         public async Task DeleteProductAsync(
             Guid id,
             CancellationToken cancellationToken)
         {
-            GetProductById(id);
+            Product? producto =
+                await _repository.GetByIdAsync(id);
+
+            if (producto == null)
+            {
+                throw new NotFoundException(
+                    "PRD-001",
+                    "Producto no encontrado.");
+            }
 
             bool tieneOrdenesActivas =
                 await TieneOrdenesActivasAsync(
@@ -168,21 +185,14 @@ namespace Products.API.Services
                     "El producto tiene órdenes activas y no puede eliminarse.");
             }
 
-            lock (_candado)
-            {
-                foreach (Product producto in _productos)
-                {
-                    if (producto.Id == id)
-                    {
-                        _productos.Remove(producto);
-                        return;
-                    }
-                }
-            }
+            bool eliminado = await _repository.DeleteAsync(id);
 
-            throw new NotFoundException(
-                "PRD-001",
-                "Producto no encontrado.");
+            if (!eliminado)
+            {
+                throw new NotFoundException(
+                    "PRD-001",
+                    "Producto no encontrado.");
+            }
         }
 
         private async Task<bool> TieneOrdenesActivasAsync(
