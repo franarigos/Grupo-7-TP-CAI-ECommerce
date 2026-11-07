@@ -23,7 +23,7 @@ namespace Users.API.ExceptionHandlers
 
             Log.Error(
                 exception,
-                "Error inesperado en Users.API. {errorCode}",
+                "Error interno en Users.API {ErrorCode}",
                 "USR-006");
 
             context.Response.StatusCode = 500;

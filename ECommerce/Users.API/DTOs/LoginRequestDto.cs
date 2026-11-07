@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations;
 namespace Users.API.DTOs
 {
     /// <summary>
-    /// Datos para iniciar sesión.
+    /// Datos necesarios para iniciar sesión.
     /// </summary>
     public class LoginRequestDto
     {

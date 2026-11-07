@@ -1,7 +1,7 @@
 ﻿
 using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Serilog;
 using Users.API.DTOs;
 using Users.API.Services;
 
@@ -35,21 +35,9 @@ namespace Users.API.Controllers
         ///   "password": "MiPassword123!"
         /// }
         ///
-        /// Ejemplo de respuesta 201:
-        ///
-        /// {
-        ///   "id": "a1b2c3d4-0000-0000-0000-111122223333",
-        ///   "nombre": "Maria",
-        ///   "apellido": "Gonzalez",
-        ///   "email": "maria@example.com",
-        ///   "fechaRegistro": "2026-11-07T10:00:00Z",
-        ///   "activo": true
-        /// }
-        ///
         /// Ejemplo de respuesta 409:
         ///
         /// {
-        ///   "status": 409,
         ///   "errorCode": "USR-001",
         ///   "errorMessage": "El email ya está registrado."
         /// }
@@ -64,11 +52,11 @@ namespace Users.API.Controllers
         [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 409)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
-        public IActionResult Register(
+        public async Task<IActionResult> Register(
             [FromBody] RegisterUserRequest request)
         {
             RegisterUserResponse response =
-                _userService.Register(request);
+                await _userService.RegisterAsync(request);
 
             return StatusCode(201, response);
         }
@@ -84,19 +72,9 @@ namespace Users.API.Controllers
         ///   "password": "MiPassword123!"
         /// }
         ///
-        /// Ejemplo de respuesta 200:
-        ///
-        /// {
-        ///   "id": "a1b2c3d4-0000-0000-0000-111122223333",
-        ///   "nombre": "Maria",
-        ///   "apellido": "Gonzalez",
-        ///   "email": "maria@example.com"
-        /// }
-        ///
         /// Ejemplo de respuesta 401:
         ///
         /// {
-        ///   "status": 401,
         ///   "errorCode": "USR-003",
         ///   "errorMessage": "Credenciales incorrectas."
         /// }
@@ -104,16 +82,15 @@ namespace Users.API.Controllers
         /// Ejemplo de respuesta 403:
         ///
         /// {
-        ///   "status": 403,
         ///   "errorCode": "USR-004",
-        ///   "errorMessage": "Su cuenta fue bloqueada por superar el máximo de intentos fallidos. Contacte a soporte."
+        ///   "errorMessage": "Usuario bloqueado por demasiados intentos."
         /// }
         /// </remarks>
         /// <param name="request">Credenciales del usuario.</param>
         /// <response code="200">Autenticación exitosa.</response>
         /// <response code="400">USR-002: Datos inválidos.</response>
         /// <response code="401">USR-003: Credenciales incorrectas.</response>
-        /// <response code="403">USR-004: Demasiados intentos, o USR-005: Suspensión por fraude.</response>
+        /// <response code="403">USR-004 o USR-005: Cuenta bloqueada.</response>
         /// <response code="500">USR-006: Error interno.</response>
         [HttpPost("login")]
         [ProducesResponseType(typeof(LoginResponseDto), 200)]
@@ -121,11 +98,11 @@ namespace Users.API.Controllers
         [ProducesResponseType(typeof(ApiErrorResponse), 401)]
         [ProducesResponseType(typeof(ApiErrorResponse), 403)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
-        public IActionResult Login(
+        public async Task<IActionResult> Login(
             [FromBody] LoginRequestDto request)
         {
             LoginResponseDto response =
-                _userService.Login(request);
+                await _userService.LoginAsync(request);
 
             return Ok(response);
         }
@@ -135,28 +112,24 @@ namespace Users.API.Controllers
         /// </summary>
         /// <param name="id">Identificador del usuario.</param>
         /// <response code="200">Usuario encontrado.</response>
-        /// <response code="404">USR-007: Usuario no encontrado.</response>
+        /// <response code="404">Usuario no encontrado.</response>
         /// <response code="500">USR-006: Error interno.</response>
         [HttpGet("{id:guid}")]
         [ProducesResponseType(typeof(RegisterUserResponse), 200)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
-        public IActionResult GetById(Guid id)
+        public async Task<IActionResult> GetById(Guid id)
         {
             RegisterUserResponse? response =
-                _userService.GetById(id);
+                await _userService.GetByIdAsync(id);
 
             if (response == null)
             {
-                HttpContext.Items["ErrorCode"] = "USR-007";
-
-                Log.Warning(
-                    "Usuario no encontrado. {errorCode}",
-                    "USR-007");
-
                 string correlationId =
                     HttpContext.Items["CorrelationId"]?.ToString()
                     ?? HttpContext.TraceIdentifier;
+
+                HttpContext.Items["ErrorCode"] = "USR-007";
 
                 ApiErrorResponse error = new ApiErrorResponse
                 {

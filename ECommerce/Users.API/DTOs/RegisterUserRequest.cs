@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations;
 namespace Users.API.DTOs
 {
     /// <summary>
-    /// Datos para registrar un usuario.
+    /// Datos necesarios para registrar un usuario.
     /// </summary>
     public class RegisterUserRequest
     {

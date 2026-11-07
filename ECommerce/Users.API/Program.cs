@@ -9,10 +9,12 @@ using Microsoft.AspNetCore.Mvc;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Json;
-using Users.API.DTOs;
-using Users.API.ExceptionHandlers;
-using Users.API.Middlewares;
-using Users.API.Services;
+using global::Users.API.Data;
+using global::Users.API.DTOs;
+using global::Users.API.ExceptionHandlers;
+using global::Users.API.HealthChecks;
+using global::Users.API.Middlewares;
+using global::Users.API.Services;
 
 Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
@@ -66,7 +68,7 @@ try
                     "USR-002";
 
                 Log.Warning(
-                    "Datos inválidos. {errorCode}: {Mensaje}",
+                    "Datos inválidos {ErrorCode}: {Mensaje}",
                     "USR-002",
                     mensaje);
 
@@ -111,7 +113,9 @@ try
         }
     });
 
-    builder.Services.AddHealthChecks();
+    builder.Services.AddSingleton<DatabaseInitializer>();
+    builder.Services.AddScoped<UserRepository>();
+    builder.Services.AddScoped<UserService>();
 
     builder.Services.AddExceptionHandler<
         UnauthorizedExceptionHandler>();
@@ -130,29 +134,41 @@ try
 
     builder.Services.AddProblemDetails();
 
-    builder.Services.AddSingleton<UserService>();
+    builder.Services.AddHealthChecks()
+        .AddCheck<SqliteHealthCheck>("sqlite-db");
 
     WebApplication app = builder.Build();
+
+    using (IServiceScope scope =
+        app.Services.CreateScope())
+    {
+        DatabaseInitializer initializer =
+            scope.ServiceProvider
+                .GetRequiredService<DatabaseInitializer>();
+
+        initializer.Initialize();
+    }
 
     app.UseMiddleware<CorrelationIdMiddleware>();
 
     app.UseSerilogRequestLogging(options =>
     {
-        options.GetLevel = (httpContext, elapsed, exception) =>
-        {
-            if (exception != null ||
-                httpContext.Response.StatusCode >= 500)
+        options.GetLevel =
+            (httpContext, elapsed, exception) =>
             {
-                return LogEventLevel.Error;
-            }
+                if (exception != null ||
+                    httpContext.Response.StatusCode >= 500)
+                {
+                    return LogEventLevel.Error;
+                }
 
-            if (httpContext.Response.StatusCode >= 400)
-            {
-                return LogEventLevel.Warning;
-            }
+                if (httpContext.Response.StatusCode >= 400)
+                {
+                    return LogEventLevel.Warning;
+                }
 
-            return LogEventLevel.Information;
-        };
+                return LogEventLevel.Information;
+            };
 
         options.EnrichDiagnosticContext =
             (diagnosticContext, httpContext) =>
@@ -169,7 +185,7 @@ try
                 if (httpContext.Items["ErrorCode"] != null)
                 {
                     diagnosticContext.Set(
-                        "errorCode",
+                        "ErrorCode",
                         httpContext.Items[
                             "ErrorCode"]?.ToString());
                 }
@@ -201,7 +217,24 @@ try
 
     app.MapHealthChecks("/health/ready", healthOptions);
 
-    app.MapHealthChecks("/health/live", healthOptions);
+    HealthCheckOptions liveOptions =
+        new HealthCheckOptions
+        {
+            Predicate = registration => false,
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType =
+                    "application/json";
+
+                await context.Response.WriteAsync(
+                    JsonSerializer.Serialize(new
+                    {
+                        estado = report.Status.ToString()
+                    }));
+            }
+        };
+
+    app.MapHealthChecks("/health/live", liveOptions);
 
     app.UseHttpsRedirection();
 
