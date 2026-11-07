@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Products.API.DTOs;
 using Products.API.Exceptions;
 using Products.API.Models;
@@ -9,81 +13,259 @@ namespace Products.API.Services
 {
     public class ProductService
     {
-        
-        private static readonly List<Product> _productos = new();
+        private static readonly List<Product> _productos =
+            new List<Product>();
 
-        public List<ProductResponse> GetProducts(string? categoria, string? nombre)
+        private static readonly object _candado = new object();
+
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+
+        public ProductService(
+            IHttpClientFactory httpClientFactory,
+            IHttpContextAccessor httpContextAccessor)
         {
-            var query = _productos.AsQueryable();
+            _httpClientFactory = httpClientFactory;
+            _httpContextAccessor = httpContextAccessor;
+        }
 
-            if (!string.IsNullOrWhiteSpace(categoria))
-                query = query.Where(p => p.Categoria.Equals(categoria, StringComparison.OrdinalIgnoreCase));
+        public List<ProductResponse> GetProducts(
+            string? categoria,
+            string? nombre)
+        {
+            List<ProductResponse> resultado =
+                new List<ProductResponse>();
 
-            if (!string.IsNullOrWhiteSpace(nombre))
-                query = query.Where(p => p.Nombre.Contains(nombre, StringComparison.OrdinalIgnoreCase));
+            lock (_candado)
+            {
+                foreach (Product producto in _productos)
+                {
+                    bool coincideCategoria =
+                        string.IsNullOrWhiteSpace(categoria) ||
+                        string.Equals(
+                            producto.Categoria,
+                            categoria,
+                            StringComparison.OrdinalIgnoreCase);
 
-            return query.Select(MapToResponse).ToList();
+                    bool coincideNombre =
+                        string.IsNullOrWhiteSpace(nombre) ||
+                        producto.Nombre.Contains(
+                            nombre,
+                            StringComparison.OrdinalIgnoreCase);
+
+                    if (coincideCategoria && coincideNombre)
+                    {
+                        resultado.Add(MapToResponse(producto));
+                    }
+                }
+            }
+
+            return resultado;
         }
 
         public ProductResponse GetProductById(Guid id)
         {
-            var producto = _productos.FirstOrDefault(p => p.Id == id);
-            if (producto == null)
-                throw new NotFoundException("PRD-001", "Producto no encontrado.");
+            lock (_candado)
+            {
+                foreach (Product producto in _productos)
+                {
+                    if (producto.Id == id)
+                    {
+                        return MapToResponse(producto);
+                    }
+                }
+            }
 
-            return MapToResponse(producto);
+            throw new NotFoundException(
+                "PRD-001",
+                "Producto no encontrado.");
         }
 
         public ProductResponse CreateProduct(ProductRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Nombre) || request.Precio <= 0)
-                throw new ValidationException("PRD-002", "Los datos del producto son inválidos.");
+            ValidarProducto(request);
 
-            if (_productos.Any(p => p.Nombre.Equals(request.Nombre, StringComparison.OrdinalIgnoreCase) &&
-                                    p.Categoria.Equals(request.Categoria, StringComparison.OrdinalIgnoreCase)))
-                throw new BusinessRuleException("PRD-003", $"Ya existe un producto con ese nombre en la categoría '{request.Categoria}'.");
-
-            var nuevoProducto = new Product
+            lock (_candado)
             {
-                Id = Guid.NewGuid(),
-                Nombre = request.Nombre,
-                Descripcion = request.Descripcion,
-                Precio = request.Precio,
-                Stock = request.Stock,
-                Categoria = request.Categoria,
-                FechaCreacion = DateTime.UtcNow
-            };
+                foreach (Product producto in _productos)
+                {
+                    if (string.Equals(
+                            producto.Nombre,
+                            request.Nombre,
+                            StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(
+                            producto.Categoria,
+                            request.Categoria,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new BusinessRuleException(
+                            "PRD-003",
+                            $"Ya existe un producto con ese nombre en la categoría '{request.Categoria}'.");
+                    }
+                }
 
-            _productos.Add(nuevoProducto);
-            return MapToResponse(nuevoProducto);
+                Product nuevoProducto = new Product
+                {
+                    Id = Guid.NewGuid(),
+                    Nombre = request.Nombre,
+                    Descripcion = request.Descripcion ?? string.Empty,
+                    Precio = request.Precio,
+                    Stock = request.Stock,
+                    Categoria = request.Categoria,
+                    FechaCreacion = DateTime.UtcNow
+                };
+
+                _productos.Add(nuevoProducto);
+
+                return MapToResponse(nuevoProducto);
+            }
         }
 
-        public ProductResponse UpdateProduct(Guid id, ProductRequest request)
+        public ProductResponse UpdateProduct(
+            Guid id,
+            ProductRequest request)
         {
-            var producto = _productos.FirstOrDefault(p => p.Id == id);
-            if (producto == null)
-                throw new NotFoundException("PRD-001", "Producto no encontrado.");
+            lock (_candado)
+            {
+                foreach (Product producto in _productos)
+                {
+                    if (producto.Id == id)
+                    {
+                        ValidarProducto(request);
 
-            if (string.IsNullOrWhiteSpace(request.Nombre) || request.Precio <= 0)
-                throw new ValidationException("PRD-002", "Los datos del producto son inválidos.");
+                        producto.Nombre = request.Nombre;
+                        producto.Descripcion =
+                            request.Descripcion ?? string.Empty;
+                        producto.Precio = request.Precio;
+                        producto.Stock = request.Stock;
+                        producto.Categoria = request.Categoria;
 
-            producto.Nombre = request.Nombre;
-            producto.Descripcion = request.Descripcion;
-            producto.Precio = request.Precio;
-            producto.Stock = request.Stock;
-            producto.Categoria = request.Categoria;
+                        return MapToResponse(producto);
+                    }
+                }
+            }
 
-            return MapToResponse(producto);
+            throw new NotFoundException(
+                "PRD-001",
+                "Producto no encontrado.");
         }
 
-        public void DeleteProduct(Guid id)
+        public async Task DeleteProductAsync(
+            Guid id,
+            CancellationToken cancellationToken)
         {
-            var producto = _productos.FirstOrDefault(p => p.Id == id);
-            if (producto == null)
-                throw new NotFoundException("PRD-001", "Producto no encontrado.");
+            GetProductById(id);
 
-           
-            _productos.Remove(producto);
+            bool tieneOrdenesActivas =
+                await TieneOrdenesActivasAsync(
+                    id,
+                    cancellationToken);
+
+            if (tieneOrdenesActivas)
+            {
+                throw new BusinessRuleException(
+                    "PRD-004",
+                    "El producto tiene órdenes activas y no puede eliminarse.");
+            }
+
+            lock (_candado)
+            {
+                foreach (Product producto in _productos)
+                {
+                    if (producto.Id == id)
+                    {
+                        _productos.Remove(producto);
+                        return;
+                    }
+                }
+            }
+
+            throw new NotFoundException(
+                "PRD-001",
+                "Producto no encontrado.");
+        }
+
+        private async Task<bool> TieneOrdenesActivasAsync(
+            Guid productoId,
+            CancellationToken cancellationToken)
+        {
+            HttpClient cliente =
+                _httpClientFactory.CreateClient("OrdersApi");
+
+            using HttpRequestMessage solicitud =
+                new HttpRequestMessage(
+                    HttpMethod.Get,
+                    "api/orders");
+
+            HttpContext? contexto =
+                _httpContextAccessor.HttpContext;
+
+            if (contexto != null)
+            {
+                string correlationId =
+                    contexto.Items["CorrelationId"]?.ToString()
+                    ?? contexto.TraceIdentifier;
+
+                solicitud.Headers.TryAddWithoutValidation(
+                    "X-Correlation-Id",
+                    correlationId);
+            }
+
+            using HttpResponseMessage respuesta =
+                await cliente.SendAsync(
+                    solicitud,
+                    cancellationToken);
+
+            if (!respuesta.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    "Error al consultar Orders.API.");
+            }
+
+            List<OrdersApiResponse>? ordenes =
+                await respuesta.Content.ReadFromJsonAsync<
+                    List<OrdersApiResponse>>(
+                    cancellationToken: cancellationToken);
+
+            if (ordenes == null)
+            {
+                throw new InvalidOperationException(
+                    "Orders.API devolvió una respuesta inválida.");
+            }
+
+            foreach (OrdersApiResponse orden in ordenes)
+            {
+                if (orden.Estado == "Pendiente" ||
+                    orden.Estado == "Confirmada")
+                {
+                    foreach (OrderItemApiResponse item in orden.Items)
+                    {
+                        if (item.ProductoId == productoId)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private void ValidarProducto(ProductRequest request)
+        {
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.Nombre) ||
+                request.Nombre.Length > 100 ||
+                string.IsNullOrWhiteSpace(request.Categoria) ||
+                (request.Descripcion != null &&
+                 request.Descripcion.Length > 500) ||
+                request.Precio <= 0 ||
+                request.Stock < 0)
+            {
+                throw new ValidationException(
+                    "PRD-002",
+                    "Los datos del producto son inválidos.");
+            }
         }
 
         private ProductResponse MapToResponse(Product producto)

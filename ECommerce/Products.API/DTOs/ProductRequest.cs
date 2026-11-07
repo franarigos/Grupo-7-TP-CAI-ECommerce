@@ -35,3 +35,5 @@ namespace Products.API.DTOs
         public string Categoria { get; set; } = string.Empty;
     }
 }
+
+
