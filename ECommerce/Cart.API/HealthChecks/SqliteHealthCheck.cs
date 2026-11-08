@@ -3,19 +3,33 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Cart.API.HealthChecks
 {
+    /// <summary>
+    /// Comprueba el acceso a la base del carrito.
+    /// </summary>
     public class SqliteHealthCheck : IHealthCheck
     {
         private readonly IConfiguration _config;
 
+        /// <summary>
+        /// Inicializa la comprobación.
+        /// </summary>
+        /// <param name="config">Configuración de la aplicación.</param>
         public SqliteHealthCheck(IConfiguration config)
         {
             _config = config;
         }
 
+        /// <summary>
+        /// Verifica que se puedan consultar las tablas del carrito.
+        /// </summary>
+        /// <param name="context">Contexto de la comprobación.</param>
+        /// <param name="cancellationToken">Token de cancelación.</param>
+        /// <returns>Estado de disponibilidad de SQLite.</returns>
         public async Task<HealthCheckResult> CheckHealthAsync(
             HealthCheckContext context,
             CancellationToken cancellationToken = default)
@@ -24,30 +38,26 @@ namespace Cart.API.HealthChecks
             {
                 string connectionString =
                     _config.GetConnectionString("DefaultConnection")
-                    ?? "Data Source=cart.db;Foreign Keys=True";
+                    ?? "Data Source=cart.db";
 
                 using SqliteConnection connection =
                     new SqliteConnection(connectionString);
 
                 await connection.OpenAsync(cancellationToken);
 
-                int resultado =
-                    await connection.ExecuteScalarAsync<int>(
-                        "SELECT 1");
+                await connection.ExecuteScalarAsync<long>(
+                    "SELECT COUNT(*) FROM carritos;");
 
-                if (resultado == 1)
-                {
-                    return HealthCheckResult.Healthy(
-                        "SQLite funciona correctamente.");
-                }
+                await connection.ExecuteScalarAsync<long>(
+                    "SELECT COUNT(*) FROM carrito_items;");
 
-                return HealthCheckResult.Unhealthy(
-                    "SQLite no respondió correctamente.");
+                return HealthCheckResult.Healthy(
+                    "SQLite está disponible.");
             }
             catch (Exception ex)
             {
                 return HealthCheckResult.Unhealthy(
-                    "No se pudo conectar con SQLite.",
+                    "No se pudieron consultar las tablas del servicio.",
                     ex);
             }
         }
