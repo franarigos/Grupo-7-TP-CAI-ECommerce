@@ -1,4 +1,12 @@
-﻿using System.Net;
+﻿
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Notifications.API.Data;
 using Notifications.API.DTOs;
 using Notifications.API.Exceptions;
 using Notifications.API.Models;
@@ -7,20 +15,18 @@ namespace Notifications.API.Services
 {
     public class NotificationService
     {
-        private static readonly List<Notification> _notificaciones =
-            new List<Notification>();
-
-        private static readonly object _lock = new object();
-
+        private readonly NotificationRepository _repository;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<NotificationService> _logger;
 
         public NotificationService(
+            NotificationRepository repository,
             IHttpClientFactory httpClientFactory,
             IHttpContextAccessor httpContextAccessor,
             ILogger<NotificationService> logger)
         {
+            _repository = repository;
             _httpClientFactory = httpClientFactory;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
@@ -40,25 +46,23 @@ namespace Notifications.API.Services
 
             notification.Id = Guid.NewGuid();
             notification.UsuarioId = request.UsuarioId;
-            notification.Mensaje = request.Mensaje;
+            notification.Mensaje = request.Mensaje.Trim();
             notification.Tipo = request.Tipo;
             notification.Estado = "Enviada";
             notification.FechaEnvio = DateTime.UtcNow;
 
-            lock (_lock)
-            {
-                _notificaciones.Add(notification);
-            }
+            await _repository.CreateAsync(notification);
 
             _logger.LogInformation(
-                "Envío SIMULADO registrado. Notificación {NotificationId}, tipo {Tipo}",
+                "Envío simulado registrado. Notificación {NotificationId}, tipo {Tipo}",
                 notification.Id,
                 notification.Tipo);
 
             return MapToResponse(notification);
         }
 
-        public List<NotificationResponse> GetByUser(Guid userId)
+        public async Task<List<NotificationResponse>> GetByUserAsync(
+            Guid userId)
         {
             if (userId == Guid.Empty)
             {
@@ -67,25 +71,22 @@ namespace Notifications.API.Services
                     "El identificador del usuario es inválido.");
             }
 
-            List<NotificationResponse> resultado =
-                new List<NotificationResponse>();
+            List<Notification> notificaciones =
+                await _repository.GetByUserAsync(userId);
 
-            lock (_lock)
-            {
-                foreach (Notification notification in _notificaciones)
-                {
-                    if (notification.UsuarioId == userId)
-                    {
-                        resultado.Add(MapToResponse(notification));
-                    }
-                }
-            }
-
-            if (resultado.Count == 0)
+            if (notificaciones.Count == 0)
             {
                 throw new NotFoundException(
                     "NTF-003",
                     "No se encontraron notificaciones para el usuario.");
+            }
+
+            List<NotificationResponse> resultado =
+                new List<NotificationResponse>();
+
+            foreach (Notification notification in notificaciones)
+            {
+                resultado.Add(MapToResponse(notification));
             }
 
             return resultado;
@@ -93,25 +94,15 @@ namespace Notifications.API.Services
 
         private void ValidarDatos(SendNotificationRequest request)
         {
-            if (request.UsuarioId == Guid.Empty)
+            if (request == null ||
+                request.UsuarioId == Guid.Empty ||
+                string.IsNullOrWhiteSpace(request.Mensaje) ||
+                request.Mensaje.Length > 500 ||
+                string.IsNullOrWhiteSpace(request.Tipo))
             {
                 throw new ValidationException(
                     "NTF-002",
-                    "El identificador del usuario es obligatorio.");
-            }
-
-            if (string.IsNullOrWhiteSpace(request.Mensaje))
-            {
-                throw new ValidationException(
-                    "NTF-002",
-                    "El mensaje es obligatorio.");
-            }
-
-            if (request.Mensaje.Length > 500)
-            {
-                throw new ValidationException(
-                    "NTF-002",
-                    "El mensaje no puede superar 500 caracteres.");
+                    "Los datos de la notificación son inválidos.");
             }
 
             if (request.Tipo != "Email" &&
@@ -131,37 +122,45 @@ namespace Notifications.API.Services
             HttpClient client =
                 _httpClientFactory.CreateClient("UsersAPI");
 
-            using HttpRequestMessage request =
+            using HttpRequestMessage solicitud =
                 new HttpRequestMessage(
                     HttpMethod.Get,
                     "api/users/" + userId);
 
-            HttpContext? context = _httpContextAccessor.HttpContext;
+            HttpContext? context =
+                _httpContextAccessor.HttpContext;
 
             if (context != null)
             {
-                request.Headers.Add(
+                solicitud.Headers.TryAddWithoutValidation(
                     "X-Correlation-Id",
                     context.TraceIdentifier);
             }
 
-            using HttpResponseMessage response =
-                await client.SendAsync(request, cancellationToken);
+            using HttpResponseMessage respuesta =
+                await client.SendAsync(
+                    solicitud,
+                    cancellationToken);
 
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            if (respuesta.StatusCode == HttpStatusCode.NotFound)
             {
                 throw new NotFoundException(
                     "NTF-001",
-                    "Usuario no encontrado.");
+                    "El usuario destinatario no fue encontrado.");
             }
 
-            response.EnsureSuccessStatusCode();
+            if (!respuesta.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    "No se pudo consultar Users.API.");
+            }
         }
 
         private NotificationResponse MapToResponse(
             Notification notification)
         {
-            NotificationResponse response = new NotificationResponse();
+            NotificationResponse response =
+                new NotificationResponse();
 
             response.Id = notification.Id;
             response.UsuarioId = notification.UsuarioId;

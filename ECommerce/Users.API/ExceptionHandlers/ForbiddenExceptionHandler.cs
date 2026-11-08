@@ -9,13 +9,23 @@ namespace Users.API.ExceptionHandlers
 {
     public class ForbiddenExceptionHandler : IExceptionHandler
     {
-        public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
+        public async ValueTask<bool> TryHandleAsync(
+            HttpContext context,
+            Exception exception,
+            CancellationToken cancellationToken)
         {
-            if (exception is not ForbiddenException ex) return false;
+            if (exception is not ForbiddenException ex)
+            {
+                return false;
+            }
 
-            var correlationId = context.Request.Headers["X-Correlation-Id"].ToString();
+            context.Items["ErrorCode"] = ex.ErrorCode;
+
+            string correlationId =
+                context.Request.Headers["X-Correlation-Id"].ToString();
 
             context.Response.StatusCode = 403;
+
             await context.Response.WriteAsJsonAsync(new
             {
                 type = "https://tools.ietf.org/html/rfc7231#section-6.5.3",
@@ -25,7 +35,7 @@ namespace Users.API.ExceptionHandlers
                 instance = context.Request.Path.Value,
                 errorCode = ex.ErrorCode,
                 errorMessage = ex.Message,
-                correlationId = correlationId 
+                correlationId = correlationId
             }, cancellationToken: cancellationToken);
 
             return true;

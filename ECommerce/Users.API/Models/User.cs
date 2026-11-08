@@ -2,34 +2,39 @@
 
 namespace Users.API.Models
 {
-    /// <summary>
-    /// Modelo de datos de User
-    /// </summary>
+    /// <summary>Representa un usuario.</summary>
     public class User
     {
+        /// <summary>Identificador del usuario.</summary>
         public Guid Id { get; set; }
+
+        /// <summary>Nombre del usuario.</summary>
         public string Nombre { get; set; }
+
+        /// <summary>Apellido del usuario.</summary>
         public string Apellido { get; set; }
+
+        /// <summary>Email del usuario.</summary>
         public string Email { get; set; }
 
-        /// <summary>
-        /// Hash de la contraseña (nunca se expone en responses)
-        /// </summary>
+        /// <summary>Hash de la contraseña; no se devuelve en las respuestas.</summary>
         public string PasswordHash { get; set; }
 
+        /// <summary>Fecha UTC del registro.</summary>
         public DateTime FechaRegistro { get; set; }
 
-        /// <summary>
-        /// false cuando el usuario está bloqueado
-        /// </summary>
+        /// <summary>Indica si el usuario puede iniciar sesión.</summary>
         public bool Activo { get; set; }
 
-        /// <summary>
-        /// Se incrementa en cada login fallido; se resetea al loguearse OK
-        /// </summary>
+        /// <summary>Cantidad de intentos fallidos consecutivos.</summary>
         public int IntentosFallidos { get; set; }
 
-        public User(string nombre, string apellido, string email, string passwordHash)
+        /// <summary>Inicializa un nuevo usuario.</summary>
+        public User(
+            string nombre,
+            string apellido,
+            string email,
+            string passwordHash)
         {
             Id = Guid.NewGuid();
             Nombre = nombre;

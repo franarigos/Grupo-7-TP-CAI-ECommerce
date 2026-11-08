@@ -1,29 +1,48 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace Orders.API.DTOs
 {
     /// <summary>
-    /// Solicitud de creacion de orden.
+    /// Datos para crear una orden de compra.
     /// </summary>
     public class CreateOrderRequest
     {
-        /// <summary>ID del comprador.</summary>
+        /// <summary>
+        /// Identificador del usuario comprador.
+        /// </summary>
         public Guid UsuarioId { get; set; }
 
-        /// <summary>Productos a comprar.</summary>
-        public List<OrderItemRequest> Items { get; set; } = new List<OrderItemRequest>();
+        /// <summary>
+        /// Lista de productos que se desea comprar.
+        /// </summary>
+        [Required(
+            ErrorMessage = "Los productos son obligatorios.")]
+        [MinLength(
+            1,
+            ErrorMessage = "La orden debe contener al menos un producto.")]
+        public List<OrderItemRequest> Items { get; set; } =
+            new List<OrderItemRequest>();
     }
 
     /// <summary>
-    /// Item de la orden a crear.
+    /// Datos de un producto incluido en la orden.
     /// </summary>
     public class OrderItemRequest
     {
-        /// <summary>ID del producto.</summary>
+        /// <summary>
+        /// Identificador del producto.
+        /// </summary>
         public Guid ProductoId { get; set; }
 
-        /// <summary>Cantidad de unidades.</summary>
+        /// <summary>
+        /// Cantidad de unidades que se desea comprar.
+        /// </summary>
+        [Range(
+            1,
+            int.MaxValue,
+            ErrorMessage = "La cantidad debe ser mayor a cero.")]
         public int Cantidad { get; set; }
     }
 }

@@ -1,162 +1,310 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
-using Cart.API.DTOs;
-using Cart.API.Exceptions;
-using CartModel = Cart.API.Models.Cart;
+using Microsoft.AspNetCore.Http;
+using global::Cart.API.Data;
+using global::Cart.API.DTOs;
+using global::Cart.API.Exceptions;
+using CartModel = global::Cart.API.Models.Cart;
+using CartItemModel = global::Cart.API.Models.CartItem;
 
 namespace Cart.API.Services
 {
-    public class MockRepository
-    {
-        private readonly List<CartModel> _db = new List<CartModel>();
-        public CartModel Get(Guid id) => _db.FirstOrDefault(c => c.UsuarioId == id);
-        public void Update(CartModel cart)
-        {
-            if (!_db.Contains(cart)) _db.Add(cart);
-        }
-    }
-
     public class CartService
     {
-        private static readonly MockRepository _repository = new MockRepository();
+        private readonly CartRepository _repository;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public CartService(IHttpClientFactory httpClientFactory)
+        public CartService(
+            CartRepository repository,
+            IHttpClientFactory httpClientFactory,
+            IHttpContextAccessor httpContextAccessor)
         {
+            _repository = repository;
             _httpClientFactory = httpClientFactory;
+            _httpContextAccessor = httpContextAccessor;
         }
 
-        private async Task ValidarStockAsync(Guid productId, int cantidadSolicitada)
+        public async Task<CartResponse> GetCartAsync(Guid userId)
         {
-            var client = _httpClientFactory.CreateClient("ProductsAPI");
-            var response = await client.GetAsync($"/api/products/{productId}");
+            CartModel? carrito =
+                await _repository.GetByUserIdAsync(userId);
 
-            if (!response.IsSuccessStatusCode)
+            if (carrito == null)
             {
-                throw new NotFoundException("CRT-002", "Producto no encontrado.");
+                throw new NotFoundException(
+                    "CRT-001",
+                    "Carrito no encontrado.");
             }
 
-            var producto = await response.Content.ReadFromJsonAsync<ProductResponse>();
-            if (producto != null && producto.Stock < cantidadSolicitada)
-            {
-                throw new BusinessRuleException("CRT-003", $"Stock insuficiente. Disponible: {producto.Stock}, solicitado: {cantidadSolicitada}.");
-            }
+            return MapToResponse(carrito);
         }
 
-        public async Task<CartResponse> AgregarItemAsync(Guid userId, AddCartItemRequest request)
+        public async Task<CartResponse> AgregarItemAsync(
+            Guid userId,
+            AddCartItemRequest request)
         {
-            if (request.Cantidad <= 0)
-                throw new ValidationException("CRT-004", "Cantidad inválida.");
+            if (request == null || request.Cantidad <= 0)
+            {
+                throw new ValidationException(
+                    "CRT-004",
+                    "Cantidad inválida.");
+            }
 
-            CartModel carrito = _repository.Get(userId);
+            CartModel? carrito =
+                await _repository.GetByUserIdAsync(userId);
 
             if (carrito == null)
             {
                 carrito = new CartModel
                 {
                     UsuarioId = userId,
-                    Items = new List<Cart.API.Models.CartItem>(),
+                    Items = new List<CartItemModel>(),
                     FechaActualizacion = DateTime.UtcNow
                 };
             }
 
-            var item = carrito.Items.FirstOrDefault(i => i.ProductoId == request.ProductoId);
-            int cantidadFinal = item != null ? item.Cantidad + request.Cantidad : request.Cantidad;
+            CartItemModel? itemExistente = null;
 
-            await ValidarStockAsync(request.ProductoId, cantidadFinal);
-
-            if (item != null)
+            foreach (CartItemModel item in carrito.Items)
             {
-                item.Cantidad = cantidadFinal;
+                if (item.ProductoId == request.ProductoId)
+                {
+                    itemExistente = item;
+                    break;
+                }
+            }
+
+            long cantidadFinal = request.Cantidad;
+
+            if (itemExistente != null)
+            {
+                cantidadFinal += itemExistente.Cantidad;
+            }
+
+            if (cantidadFinal > int.MaxValue)
+            {
+                throw new BusinessRuleException(
+                    "CRT-003",
+                    "Stock insuficiente para agregar al carrito.");
+            }
+
+            await ValidarStockAsync(
+                request.ProductoId,
+                (int)cantidadFinal);
+
+            if (itemExistente != null)
+            {
+                itemExistente.Cantidad = (int)cantidadFinal;
             }
             else
             {
-                carrito.Items.Add(new Cart.API.Models.CartItem
+                CartItemModel nuevoItem = new CartItemModel
                 {
                     ProductoId = request.ProductoId,
                     Cantidad = request.Cantidad
-                });
+                };
+
+                carrito.Items.Add(nuevoItem);
             }
 
             carrito.FechaActualizacion = DateTime.UtcNow;
-            _repository.Update(carrito);
+
+            await _repository.SaveAsync(carrito);
 
             return MapToResponse(carrito);
         }
 
-        public CartResponse GetCart(Guid userId)
-        {
-            CartModel carrito = _repository.Get(userId);
-            if (carrito == null)
-                throw new NotFoundException("CRT-001", "Carrito no encontrado.");
-
-            return MapToResponse(carrito);
-        }
-
-        public async Task<CartResponse> UpdateItemQuantityAsync(Guid userId, Guid productId, int nuevaCantidad)
+        public async Task<CartResponse> UpdateItemQuantityAsync(
+            Guid userId,
+            Guid productId,
+            int nuevaCantidad)
         {
             if (nuevaCantidad <= 0)
-                throw new ValidationException("CRT-004", "Cantidad inválida.");
+            {
+                throw new ValidationException(
+                    "CRT-004",
+                    "Cantidad inválida.");
+            }
 
-            CartModel carrito = _repository.Get(userId);
+            CartModel? carrito =
+                await _repository.GetByUserIdAsync(userId);
+
             if (carrito == null)
-                throw new NotFoundException("CRT-001", "Carrito no encontrado.");
+            {
+                throw new NotFoundException(
+                    "CRT-001",
+                    "Carrito no encontrado.");
+            }
 
-            var item = carrito.Items.FirstOrDefault(i => i.ProductoId == productId);
-            if (item == null)
-                throw new NotFoundException("CRT-002", "Producto no encontrado.");
+            CartItemModel? itemExistente = null;
 
-            await ValidarStockAsync(productId, nuevaCantidad);
+            foreach (CartItemModel item in carrito.Items)
+            {
+                if (item.ProductoId == productId)
+                {
+                    itemExistente = item;
+                    break;
+                }
+            }
 
-            item.Cantidad = nuevaCantidad;
+            if (itemExistente == null)
+            {
+                throw new NotFoundException(
+                    "CRT-002",
+                    "Producto no encontrado.");
+            }
+
+            await ValidarStockAsync(
+                productId,
+                nuevaCantidad);
+
+            itemExistente.Cantidad = nuevaCantidad;
             carrito.FechaActualizacion = DateTime.UtcNow;
 
-            _repository.Update(carrito);
+            await _repository.SaveAsync(carrito);
+
             return MapToResponse(carrito);
         }
 
-        public void RemoveItem(Guid userId, Guid productId)
+        public async Task RemoveItemAsync(
+            Guid userId,
+            Guid productId)
         {
-            CartModel carrito = _repository.Get(userId);
-            if (carrito == null)
-                throw new NotFoundException("CRT-001", "Carrito no encontrado.");
+            CartModel? carrito =
+                await _repository.GetByUserIdAsync(userId);
 
-            var item = carrito.Items.FirstOrDefault(i => i.ProductoId == productId);
-            if (item != null)
+            if (carrito == null)
             {
-                carrito.Items.Remove(item);
+                throw new NotFoundException(
+                    "CRT-001",
+                    "Carrito no encontrado.");
+            }
+
+            CartItemModel? itemExistente = null;
+
+            foreach (CartItemModel item in carrito.Items)
+            {
+                if (item.ProductoId == productId)
+                {
+                    itemExistente = item;
+                    break;
+                }
+            }
+
+            if (itemExistente != null)
+            {
+                carrito.Items.Remove(itemExistente);
                 carrito.FechaActualizacion = DateTime.UtcNow;
-                _repository.Update(carrito);
+
+                await _repository.SaveAsync(carrito);
             }
         }
 
-        public void ClearCart(Guid userId)
+        public async Task ClearCartAsync(Guid userId)
         {
-            CartModel carrito = _repository.Get(userId);
+            CartModel? carrito =
+                await _repository.GetByUserIdAsync(userId);
+
             if (carrito == null)
-                throw new NotFoundException("CRT-001", "Carrito no encontrado.");
+            {
+                throw new NotFoundException(
+                    "CRT-001",
+                    "Carrito no encontrado.");
+            }
 
             carrito.Items.Clear();
             carrito.FechaActualizacion = DateTime.UtcNow;
-            _repository.Update(carrito);
+
+            await _repository.SaveAsync(carrito);
+        }
+
+        private async Task ValidarStockAsync(
+            Guid productId,
+            int cantidadSolicitada)
+        {
+            HttpClient client =
+                _httpClientFactory.CreateClient("ProductsAPI");
+
+            using HttpRequestMessage solicitud =
+                new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"api/products/{productId}");
+
+            HttpContext? contexto =
+                _httpContextAccessor.HttpContext;
+
+            if (contexto != null)
+            {
+                string correlationId =
+                    contexto.Items["CorrelationId"]?.ToString()
+                    ?? contexto.TraceIdentifier;
+
+                solicitud.Headers.TryAddWithoutValidation(
+                    "X-Correlation-Id",
+                    correlationId);
+            }
+
+            using HttpResponseMessage respuesta =
+                await client.SendAsync(solicitud);
+
+            if (respuesta.StatusCode == HttpStatusCode.NotFound)
+            {
+                throw new NotFoundException(
+                    "CRT-002",
+                    "Producto no encontrado.");
+            }
+
+            if (!respuesta.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    "No se pudo consultar Products.API.");
+            }
+
+            ProductResponse? producto =
+                await respuesta.Content.ReadFromJsonAsync<
+                    ProductResponse>();
+
+            if (producto == null)
+            {
+                throw new InvalidOperationException(
+                    "Products.API devolvió una respuesta inválida.");
+            }
+
+            if (producto.Stock < cantidadSolicitada)
+            {
+                throw new BusinessRuleException(
+                    "CRT-003",
+                    $"Stock insuficiente. Disponible: {producto.Stock}, solicitado: {cantidadSolicitada}.");
+            }
         }
 
         private CartResponse MapToResponse(CartModel carrito)
         {
-            return new CartResponse
+            CartResponse response = new CartResponse();
+
+            response.UsuarioId = carrito.UsuarioId;
+            response.FechaActualizacion =
+                carrito.FechaActualizacion;
+
+            response.Items = new List<CartItemResponse>();
+
+            foreach (CartItemModel item in carrito.Items)
             {
-                UsuarioId = carrito.UsuarioId,
-                FechaActualizacion = carrito.FechaActualizacion,
-                Items = carrito.Items.Select(i => new CartItemResponse
-                {
-                    ProductoId = i.ProductoId,
-                    Cantidad = i.Cantidad
-                }).ToList()
-            };
+                CartItemResponse itemResponse =
+                    new CartItemResponse();
+
+                itemResponse.ProductoId = item.ProductoId;
+                itemResponse.Cantidad = item.Cantidad;
+
+                response.Items.Add(itemResponse);
+            }
+
+            return response;
         }
     }
 }

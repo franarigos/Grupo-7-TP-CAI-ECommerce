@@ -1,113 +1,404 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Serilog;
-using Serilog.Formatting.Json;
-using System;
 using System.Net.Http;
-using System.Text.Json;
+using System.Reflection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Cart.API.Data;
 using Cart.API.ExceptionHandlers;
-using Cart.API.Services;
+using Cart.API.HealthChecks;
 using Cart.API.Middlewares;
+using Cart.API.Services;
+using Serilog;
+using Serilog.AspNetCore;
+using Serilog.Events;
+using Serilog.Formatting.Json;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
-Log.Logger = new LoggerConfiguration()
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Servicio", "Cart.API")
-    .WriteTo.Console()
-    .WriteTo.File(new JsonFormatter(), "logs/cart-api-log.json", rollingInterval: RollingInterval.Day)
-    .CreateBootstrapLogger();
-
-try
+/// <summary>
+/// Configura e inicia Cart.API.
+/// </summary>
+public class Program
 {
-    var builder = WebApplication.CreateBuilder(args);
-
-    builder.Host.UseSerilog();
-
-    builder.Services.AddControllers();
-    builder.Services.AddEndpointsApiExplorer();
-
-    builder.Services.AddSwaggerGen(c =>
+    /// <summary>
+    /// Inicia la aplicación.
+    /// </summary>
+    /// <param name="args">Argumentos de inicio.</param>
+    public static void Main(string[] args)
     {
-        var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-        var xmlPath = System.IO.Path.Combine(AppContext.BaseDirectory, xmlFile);
-        c.IncludeXmlComments(xmlPath);
-    });
+        string entorno =
+            Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? "Production";
 
-    builder.Services.AddHttpContextAccessor();
+        IConfiguration configuracion = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile("appsettings." + entorno + ".json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
 
-    builder.Services.AddExceptionHandler<NotFoundExceptionHandler>();
-    builder.Services.AddExceptionHandler<BusinessRuleExceptionHandler>();
-    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
-    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-    builder.Services.AddProblemDetails();
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Is(
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Default",
+                    LogEventLevel.Information))
+            .MinimumLevel.Override(
+                "Microsoft",
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Microsoft",
+                    LogEventLevel.Warning))
+            .Enrich.FromLogContext()
+            .Enrich.WithProperty("Servicio", "Cart.API")
+            .WriteTo.Console(
+                outputTemplate:
+                "[{Timestamp:HH:mm:ss} {Level:u3}] " +
+                "{Servicio} {Endpoint} {CorrelationId} {ErrorCode} " +
+                "{Message:lj}{NewLine}{Exception}")
+            .WriteTo.File(
+                new JsonFormatter(),
+                "logs/cart-api-.json",
+                rollingInterval: RollingInterval.Day)
+            .CreateLogger();
 
-    builder.Services.AddHealthChecks();
-
-    builder.Services.AddHttpClient("ProductsAPI", (provider, client) =>
-    {
-        client.BaseAddress = new Uri("https://localhost:44316");
-        var httpContextAccessor = provider.GetRequiredService<IHttpContextAccessor>();
-        if (httpContextAccessor.HttpContext != null &&
-            httpContextAccessor.HttpContext.Items.TryGetValue("CorrelationId", out var correlationId))
+        try
         {
-            client.DefaultRequestHeaders.Add("X-Correlation-Id", correlationId.ToString());
+            WebApplicationBuilder builder =
+                WebApplication.CreateBuilder(args);
+
+            builder.Host.UseSerilog();
+
+            builder.Services.AddControllers()
+                .ConfigureApiBehaviorOptions(ConfigurarValidacion);
+
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen(ConfigurarSwagger);
+            builder.Services.AddHttpContextAccessor();
+
+            builder.Services.AddHttpClient(
+                "ProductsAPI",
+                ConfigurarClienteProducts);
+
+            builder.Services.AddSingleton<DatabaseInitializer>();
+            builder.Services.AddScoped<CartRepository>();
+            builder.Services.AddScoped<CartService>();
+
+            builder.Services.AddExceptionHandler<
+                NotFoundExceptionHandler>();
+
+            builder.Services.AddExceptionHandler<
+                BusinessRuleExceptionHandler>();
+
+            builder.Services.AddExceptionHandler<
+                ValidationExceptionHandler>();
+
+            builder.Services.AddExceptionHandler<
+                GlobalExceptionHandler>();
+
+            builder.Services.AddProblemDetails(
+                ConfigurarErroresHttp);
+
+            builder.Services.AddHealthChecks()
+                .AddCheck<SqliteHealthCheck>("sqlite-db");
+
+            WebApplication app = builder.Build();
+
+            using (IServiceScope scope = app.Services.CreateScope())
+            {
+                DatabaseInitializer initializer =
+                    scope.ServiceProvider
+                        .GetRequiredService<DatabaseInitializer>();
+
+                initializer.Initialize();
+            }
+
+            app.UseMiddleware<CorrelationIdMiddleware>();
+
+            app.UseSerilogRequestLogging(
+                ConfigurarLogSolicitudes);
+
+            app.UseExceptionHandler();
+            app.UseStatusCodePages();
+
+            app.UseSwagger();
+            app.UseSwaggerUI();
+
+            HealthCheckOptions healthOptions =
+                new HealthCheckOptions();
+
+            healthOptions.ResponseWriter =
+                EscribirEstadoSalud;
+
+            app.MapHealthChecks(
+                "/health",
+                healthOptions);
+
+            app.MapHealthChecks(
+                "/health/ready",
+                healthOptions);
+
+            HealthCheckOptions liveOptions =
+                new HealthCheckOptions();
+
+            liveOptions.Predicate =
+                ExcluirComprobacion;
+
+            liveOptions.ResponseWriter =
+                EscribirEstadoSalud;
+
+            app.MapHealthChecks(
+                "/health/live",
+                liveOptions);
+
+            app.UseHttpsRedirection();
+            app.UseAuthorization();
+            app.MapControllers();
+
+            app.Run();
         }
-    })
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-    {
-        ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true
-    });
-
-    builder.Services.AddScoped<CartService>();
-
-    var app = builder.Build();
-
-    app.UseMiddleware<CorrelationIdMiddleware>();
-
-    app.UseSerilogRequestLogging(options =>
-    {
-        options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+        catch (Exception ex)
         {
-            diagnosticContext.Set("CorrelationId", httpContext.Items["CorrelationId"]);
-            diagnosticContext.Set("Endpoint", httpContext.Request.Path);
-        };
-    });
+            Log.Fatal(
+                ex,
+                "Error inesperado al iniciar Cart.API");
 
-    if (app.Environment.IsDevelopment())
-    {
-        app.UseSwagger();
-        app.UseSwaggerUI();
+            throw;
+        }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
     }
 
-    app.UseExceptionHandler();
-
-    var healthCheckOptions = new HealthCheckOptions
+    private static void ConfigurarValidacion(
+        ApiBehaviorOptions options)
     {
-        ResponseWriter = async (context, report) =>
+        options.InvalidModelStateResponseFactory =
+            CrearErrorValidacion;
+    }
+
+    private static IActionResult CrearErrorValidacion(
+        ActionContext context)
+    {
+        List<string> mensajes = new List<string>();
+
+        foreach (var campo in context.ModelState.Values)
         {
-            context.Response.ContentType = "application/json";
-            var response = new { estado = report.Status.ToString() };
-            await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+            foreach (var error in campo.Errors)
+            {
+                if (!string.IsNullOrWhiteSpace(error.ErrorMessage))
+                {
+                    mensajes.Add(error.ErrorMessage);
+                }
+            }
         }
-    };
 
-    app.MapHealthChecks("/health", healthCheckOptions);
-    app.MapHealthChecks("/health/ready", healthCheckOptions);
-    app.MapHealthChecks("/health/live", healthCheckOptions);
+        string mensaje = string.Join("; ", mensajes);
 
-    app.UseHttpsRedirection();
-    app.UseAuthorization();
-    app.MapControllers();
+        if (string.IsNullOrWhiteSpace(mensaje))
+        {
+            mensaje = "Cantidad inválida.";
+        }
 
-    app.Run();
-}
-catch (Exception ex)
-{
-    Log.Fatal(ex, "El microservicio Cart.API se cerro inesperadamente");
-}
-finally
-{
-    Log.CloseAndFlush();
+        context.HttpContext.Items["ErrorCode"] =
+            "CRT-004";
+
+        Log.Warning(
+            "Validación incorrecta {ErrorCode}: {Mensaje}",
+            "CRT-004",
+            mensaje);
+
+        BadRequestObjectResult resultado =
+            new BadRequestObjectResult(new
+            {
+                type =
+                    "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+                title = "Bad Request",
+                status = 400,
+                detail = "Los datos enviados no son válidos.",
+                instance =
+                    context.HttpContext.Request.Path.ToString(),
+                errorCode = "CRT-004",
+                errorMessage = mensaje,
+                correlationId =
+                    ObtenerCorrelationId(context.HttpContext)
+            });
+
+        resultado.ContentTypes.Add(
+            "application/problem+json");
+
+        return resultado;
+    }
+
+    private static void ConfigurarSwagger(
+        SwaggerGenOptions options)
+    {
+        string xmlFile =
+            Assembly.GetExecutingAssembly().GetName().Name
+            + ".xml";
+
+        string xmlPath =
+            Path.Combine(AppContext.BaseDirectory, xmlFile);
+
+        if (File.Exists(xmlPath))
+        {
+            options.IncludeXmlComments(xmlPath);
+        }
+    }
+
+    private static void ConfigurarClienteProducts(
+        IServiceProvider services,
+        HttpClient client)
+    {
+        IConfiguration config =
+            services.GetRequiredService<IConfiguration>();
+
+        string? url = config["Services:ProductsApi"];
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            throw new InvalidOperationException(
+                "Falta configurar Services:ProductsApi.");
+        }
+
+        client.BaseAddress = new Uri(url);
+        client.Timeout = TimeSpan.FromSeconds(10);
+    }
+
+    private static void ConfigurarErroresHttp(
+        ProblemDetailsOptions options)
+    {
+        options.CustomizeProblemDetails =
+            CompletarErrorHttp;
+    }
+
+    private static void CompletarErrorHttp(
+        ProblemDetailsContext context)
+    {
+        ProblemDetails problem = context.ProblemDetails;
+
+        int status =
+            problem.Status
+            ?? context.HttpContext.Response.StatusCode;
+
+        string errorCode = "CRT-HTTP-" + status;
+
+        string mensaje =
+            "La solicitud no pudo procesarse.";
+
+        if (status == 404)
+        {
+            mensaje =
+                "La ruta solicitada no fue encontrada.";
+        }
+        else if (status == 405)
+        {
+            mensaje =
+                "El método HTTP no está permitido para esta ruta.";
+        }
+        else if (status == 415)
+        {
+            mensaje =
+                "El contenido debe enviarse en un formato admitido por la API.";
+        }
+
+        problem.Detail = mensaje;
+
+        problem.Instance =
+            context.HttpContext.Request.Path.ToString();
+
+        problem.Extensions["errorCode"] = errorCode;
+        problem.Extensions["errorMessage"] = mensaje;
+
+        problem.Extensions["correlationId"] =
+            ObtenerCorrelationId(context.HttpContext);
+
+        context.HttpContext.Items["ErrorCode"] =
+            errorCode;
+
+        if (status >= 500)
+        {
+            Log.Error(
+                "Error HTTP {ErrorCode}: {Mensaje}",
+                errorCode,
+                mensaje);
+        }
+        else
+        {
+            Log.Warning(
+                "Error HTTP {ErrorCode}: {Mensaje}",
+                errorCode,
+                mensaje);
+        }
+    }
+
+    private static string ObtenerCorrelationId(
+        HttpContext context)
+    {
+        return context.Items["CorrelationId"]?.ToString()
+            ?? context.TraceIdentifier;
+    }
+
+    private static void ConfigurarLogSolicitudes(
+        RequestLoggingOptions options)
+    {
+        options.GetLevel = ObtenerNivelLog;
+
+        options.EnrichDiagnosticContext =
+            CompletarLogSolicitud;
+    }
+
+    private static LogEventLevel ObtenerNivelLog(
+        HttpContext context,
+        double elapsed,
+        Exception? exception)
+    {
+        if (exception != null ||
+            context.Response.StatusCode >= 500)
+        {
+            return LogEventLevel.Error;
+        }
+
+        if (context.Response.StatusCode >= 400)
+        {
+            return LogEventLevel.Warning;
+        }
+
+        return LogEventLevel.Information;
+    }
+
+    private static void CompletarLogSolicitud(
+        IDiagnosticContext diagnosticContext,
+        HttpContext context)
+    {
+        diagnosticContext.Set(
+            "Endpoint",
+            context.Request.Path.ToString());
+
+        diagnosticContext.Set(
+            "CorrelationId",
+            ObtenerCorrelationId(context));
+
+        if (context.Items["ErrorCode"] != null)
+        {
+            diagnosticContext.Set(
+                "ErrorCode",
+                context.Items["ErrorCode"]!.ToString());
+        }
+    }
+
+    private static bool ExcluirComprobacion(
+        HealthCheckRegistration registration)
+    {
+        return false;
+    }
+
+    private static Task EscribirEstadoSalud(
+        HttpContext context,
+        HealthReport report)
+    {
+        return context.Response.WriteAsJsonAsync(new
+        {
+            estado = report.Status.ToString()
+        });
+    }
 }

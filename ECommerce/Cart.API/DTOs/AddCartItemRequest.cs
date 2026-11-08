@@ -1,20 +1,25 @@
 ﻿using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace Cart.API.DTOs
 {
     /// <summary>
-    /// Datos para agregar un ítem al carrito.
+    /// Datos para agregar un producto al carrito.
     /// </summary>
     public class AddCartItemRequest
     {
         /// <summary>
-        /// Identificador único del producto a agregar.
+        /// Identificador del producto.
         /// </summary>
         public Guid ProductoId { get; set; }
 
         /// <summary>
-        /// Cantidad del producto a agregar.
+        /// Cantidad de unidades que se desea agregar.
         /// </summary>
+        [Range(
+            1,
+            int.MaxValue,
+            ErrorMessage = "La cantidad debe ser mayor a cero.")]
         public int Cantidad { get; set; }
     }
 }

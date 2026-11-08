@@ -1,14 +1,17 @@
-﻿using Microsoft.AspNetCore.Http;
-using Serilog.Context;
-using System;
+﻿using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Serilog;
+using Serilog.Context;
 
 namespace Users.API.Middlewares
 {
     public class CorrelationIdMiddleware
     {
         private readonly RequestDelegate _next;
-        private const string CorrelationIdHeader = "X-Correlation-Id";
+
+        private const string CorrelationIdHeader =
+            "X-Correlation-Id";
 
         public CorrelationIdMiddleware(RequestDelegate next)
         {
@@ -17,27 +20,49 @@ namespace Users.API.Middlewares
 
         public async Task InvokeAsync(HttpContext context)
         {
-            var correlationId = context.Request.Headers[CorrelationIdHeader].ToString();
+            string correlationId =
+                context.Request.Headers[
+                    CorrelationIdHeader].ToString();
 
-            if (string.IsNullOrEmpty(correlationId))
+            if (string.IsNullOrWhiteSpace(correlationId))
             {
                 correlationId = Guid.NewGuid().ToString();
-                context.Request.Headers.TryAdd(CorrelationIdHeader, correlationId);
             }
 
-            context.Response.OnStarting(() =>
-            {
-                if (!context.Response.Headers.ContainsKey(CorrelationIdHeader))
-                {
-                    context.Response.Headers.Append(CorrelationIdHeader, correlationId);
-                }
-                return Task.CompletedTask;
-            });
+            context.Request.Headers[CorrelationIdHeader] =
+                correlationId;
 
-            using (LogContext.PushProperty("CorrelationId", correlationId))
+            context.Items["CorrelationId"] = correlationId;
+
+            context.Response.OnStarting(
+                AgregarCorrelationId,
+                context);
+
+            using (LogContext.PushProperty(
+                "CorrelationId",
+                correlationId))
+            using (LogContext.PushProperty(
+                "Endpoint",
+                context.Request.Path.ToString()))
             {
+                Log.Information(
+                    "Inicio de solicitud {Metodo} {Endpoint}",
+                    context.Request.Method,
+                    context.Request.Path.ToString());
+
                 await _next(context);
             }
+        }
+
+        private static Task AgregarCorrelationId(object estado)
+        {
+            HttpContext context = (HttpContext)estado;
+
+            context.Response.Headers["X-Correlation-Id"] =
+                context.Items["CorrelationId"]?.ToString()
+                ?? context.TraceIdentifier;
+
+            return Task.CompletedTask;
         }
     }
 }
