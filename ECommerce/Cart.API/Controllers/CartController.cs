@@ -6,9 +6,7 @@ using global::Cart.API.Services;
 
 namespace Cart.API.Controllers
 {
-    /// <summary>
-    /// API para gestionar carritos de compras.
-    /// </summary>
+    /// <summary>Gestiona los carritos de compras.</summary>
     [ApiController]
     [Route("api/cart")]
     [Tags("Carrito")]
@@ -16,34 +14,50 @@ namespace Cart.API.Controllers
     {
         private readonly CartService _cartService;
 
+        /// <summary>Inicializa el controlador.</summary>
+        /// <param name="cartService">Servicio del carrito.</param>
         public CartController(CartService cartService)
         {
             _cartService = cartService;
         }
 
-        /// <summary>
-        /// Obtiene el carrito de un usuario.
-        /// </summary>
+        /// <summary>Obtiene el carrito de un usuario.</summary>
         /// <remarks>
-        /// Ejemplo de respuesta 200:
-        ///
+        /// Respuesta 200:
+        /// <code>
         /// {
-        ///   "usuarioId": "a1b2c3d4-0000-0000-0000-111122223333",
+        ///   "usuarioId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         ///   "items": [
         ///     {
         ///       "productoId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
         ///       "cantidad": 2
         ///     }
         ///   ],
-        ///   "fechaActualizacion": "2026-11-07T10:00:00Z"
+        ///   "fechaActualizacion": "2026-11-07T12:00:00Z"
         /// }
+        /// </code>
+        /// Respuesta 404:
+        /// <code>
+        /// {
+        ///   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+        ///   "title": "Not Found",
+        ///   "status": 404,
+        ///   "detail": "El recurso solicitado no fue encontrado.",
+        ///   "instance": "/api/cart/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        ///   "errorCode": "CRT-001",
+        ///   "errorMessage": "Carrito no encontrado.",
+        ///   "correlationId": "11111111-2222-3333-4444-555555555555"
+        /// }
+        /// </code>
         /// </remarks>
-        /// <param name="userId">Identificador del usuario.</param>
-        /// <response code="200">Carrito obtenido correctamente.</response>
+        /// <param name="userId">Identificador del usuario en formato GUID.</param>
+        /// <response code="200">Carrito encontrado.</response>
+        /// <response code="400">CRT-004: Formato de identificador inválido.</response>
         /// <response code="404">CRT-001: Carrito no encontrado.</response>
         /// <response code="500">CRT-005: Error interno.</response>
         [HttpGet("{userId}")]
         [ProducesResponseType(typeof(CartResponse), 200)]
+        [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
         public async Task<IActionResult> GetCart(Guid userId)
@@ -54,35 +68,55 @@ namespace Cart.API.Controllers
             return Ok(response);
         }
 
-        /// <summary>
-        /// Agrega un producto al carrito.
-        /// </summary>
+        /// <summary>Agrega un producto al carrito.</summary>
         /// <remarks>
-        /// Ejemplo de solicitud:
-        ///
+        /// Solicitud:
+        /// <code>
         /// {
         ///   "productoId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
         ///   "cantidad": 2
         /// }
-        ///
-        /// Ejemplo de respuesta 422:
-        ///
+        /// </code>
+        /// Respuesta 200:
+        /// <code>
         /// {
-        ///   "errorCode": "CRT-003",
-        ///   "errorMessage": "Stock insuficiente. Disponible: 1, solicitado: 2."
+        ///   "usuarioId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        ///   "items": [
+        ///     {
+        ///       "productoId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        ///       "cantidad": 2
+        ///     }
+        ///   ],
+        ///   "fechaActualizacion": "2026-11-07T12:00:00Z"
         /// }
+        /// </code>
+        /// Respuesta 422:
+        /// <code>
+        /// {
+        ///   "type": "https://tools.ietf.org/html/rfc4918#section-11.2",
+        ///   "title": "Unprocessable Entity",
+        ///   "status": 422,
+        ///   "detail": "No se puede procesar la solicitud.",
+        ///   "instance": "/api/cart/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/items",
+        ///   "errorCode": "CRT-003",
+        ///   "errorMessage": "Stock insuficiente. Disponible: 1, solicitado: 2.",
+        ///   "correlationId": "11111111-2222-3333-4444-555555555555"
+        /// }
+        /// </code>
         /// </remarks>
-        /// <param name="userId">Identificador del usuario.</param>
-        /// <param name="request">Producto y cantidad.</param>
+        /// <param name="userId">Identificador del usuario en formato GUID.</param>
+        /// <param name="request">Producto y cantidad mayor a cero.</param>
         /// <response code="200">Producto agregado al carrito.</response>
-        /// <response code="400">CRT-004: Cantidad inválida.</response>
+        /// <response code="400">CRT-004: Cantidad o formato inválidos.</response>
         /// <response code="404">CRT-002: Producto no encontrado.</response>
+        /// <response code="415">CRT-HTTP-415: Formato de contenido no admitido.</response>
         /// <response code="422">CRT-003: Stock insuficiente.</response>
         /// <response code="500">CRT-005: Error interno.</response>
         [HttpPost("{userId}/items")]
         [ProducesResponseType(typeof(CartResponse), 200)]
         [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
+        [ProducesResponseType(typeof(ApiErrorResponse), 415)]
         [ProducesResponseType(typeof(ApiErrorResponse), 422)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
         public async Task<IActionResult> AgregarItem(
@@ -97,35 +131,55 @@ namespace Cart.API.Controllers
             return Ok(response);
         }
 
-        /// <summary>
-        /// Actualiza la cantidad de un producto del carrito.
-        /// </summary>
+        /// <summary>Actualiza la cantidad de un producto.</summary>
         /// <remarks>
-        /// Ejemplo de solicitud:
-        ///
+        /// Solicitud:
+        /// <code>
         /// {
         ///   "cantidad": 4
         /// }
-        ///
-        /// Ejemplo de respuesta 400:
-        ///
+        /// </code>
+        /// Respuesta 200:
+        /// <code>
         /// {
-        ///   "errorCode": "CRT-004",
-        ///   "errorMessage": "Cantidad inválida."
+        ///   "usuarioId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        ///   "items": [
+        ///     {
+        ///       "productoId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        ///       "cantidad": 4
+        ///     }
+        ///   ],
+        ///   "fechaActualizacion": "2026-11-07T12:00:00Z"
         /// }
+        /// </code>
+        /// Respuesta 400:
+        /// <code>
+        /// {
+        ///   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+        ///   "title": "Bad Request",
+        ///   "status": 400,
+        ///   "detail": "Los datos enviados no son válidos.",
+        ///   "instance": "/api/cart/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/items/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        ///   "errorCode": "CRT-004",
+        ///   "errorMessage": "La cantidad debe ser mayor a cero.",
+        ///   "correlationId": "11111111-2222-3333-4444-555555555555"
+        /// }
+        /// </code>
         /// </remarks>
-        /// <param name="userId">Identificador del usuario.</param>
-        /// <param name="productId">Identificador del producto.</param>
-        /// <param name="request">Nueva cantidad.</param>
+        /// <param name="userId">Identificador del usuario en formato GUID.</param>
+        /// <param name="productId">Identificador del producto en formato GUID.</param>
+        /// <param name="request">Nueva cantidad mayor a cero.</param>
         /// <response code="200">Cantidad actualizada.</response>
-        /// <response code="400">CRT-004: Cantidad inválida.</response>
-        /// <response code="404">CRT-001 o CRT-002: Recurso no encontrado.</response>
+        /// <response code="400">CRT-004: Cantidad o formato inválidos.</response>
+        /// <response code="404">CRT-001: Carrito inexistente; CRT-002: Producto no encontrado.</response>
+        /// <response code="415">CRT-HTTP-415: Formato de contenido no admitido.</response>
         /// <response code="422">CRT-003: Stock insuficiente.</response>
         /// <response code="500">CRT-005: Error interno.</response>
         [HttpPut("{userId}/items/{productId}")]
         [ProducesResponseType(typeof(CartResponse), 200)]
         [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
+        [ProducesResponseType(typeof(ApiErrorResponse), 415)]
         [ProducesResponseType(typeof(ApiErrorResponse), 422)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
         public async Task<IActionResult> UpdateItemQuantity(
@@ -142,16 +196,33 @@ namespace Cart.API.Controllers
             return Ok(response);
         }
 
-        /// <summary>
-        /// Quita un producto del carrito.
-        /// </summary>
-        /// <param name="userId">Identificador del usuario.</param>
-        /// <param name="productId">Identificador del producto.</param>
-        /// <response code="204">Producto quitado del carrito.</response>
+        /// <summary>Quita un producto del carrito.</summary>
+        /// <remarks>
+        /// Respuesta 204: sin cuerpo.
+        ///
+        /// Respuesta 404:
+        /// <code>
+        /// {
+        ///   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+        ///   "title": "Not Found",
+        ///   "status": 404,
+        ///   "detail": "El recurso solicitado no fue encontrado.",
+        ///   "instance": "/api/cart/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/items/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        ///   "errorCode": "CRT-001",
+        ///   "errorMessage": "Carrito no encontrado.",
+        ///   "correlationId": "11111111-2222-3333-4444-555555555555"
+        /// }
+        /// </code>
+        /// </remarks>
+        /// <param name="userId">Identificador del usuario en formato GUID.</param>
+        /// <param name="productId">Identificador del producto en formato GUID.</param>
+        /// <response code="204">Producto quitado; respuesta sin cuerpo.</response>
+        /// <response code="400">CRT-004: Formato de identificador inválido.</response>
         /// <response code="404">CRT-001: Carrito no encontrado.</response>
         /// <response code="500">CRT-005: Error interno.</response>
         [HttpDelete("{userId}/items/{productId}")]
         [ProducesResponseType(204)]
+        [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
         public async Task<IActionResult> RemoveItem(
@@ -165,15 +236,32 @@ namespace Cart.API.Controllers
             return NoContent();
         }
 
-        /// <summary>
-        /// Vacía todos los productos del carrito.
-        /// </summary>
-        /// <param name="userId">Identificador del usuario.</param>
-        /// <response code="204">Carrito vaciado correctamente.</response>
+        /// <summary>Vacía el carrito.</summary>
+        /// <remarks>
+        /// Respuesta 204: sin cuerpo.
+        ///
+        /// Respuesta 404:
+        /// <code>
+        /// {
+        ///   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+        ///   "title": "Not Found",
+        ///   "status": 404,
+        ///   "detail": "El recurso solicitado no fue encontrado.",
+        ///   "instance": "/api/cart/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        ///   "errorCode": "CRT-001",
+        ///   "errorMessage": "Carrito no encontrado.",
+        ///   "correlationId": "11111111-2222-3333-4444-555555555555"
+        /// }
+        /// </code>
+        /// </remarks>
+        /// <param name="userId">Identificador del usuario en formato GUID.</param>
+        /// <response code="204">Carrito vaciado; respuesta sin cuerpo.</response>
+        /// <response code="400">CRT-004: Formato de identificador inválido.</response>
         /// <response code="404">CRT-001: Carrito no encontrado.</response>
         /// <response code="500">CRT-005: Error interno.</response>
         [HttpDelete("{userId}")]
         [ProducesResponseType(204)]
+        [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
         [ProducesResponseType(typeof(ApiErrorResponse), 500)]
         public async Task<IActionResult> ClearCart(Guid userId)
