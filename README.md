@@ -232,6 +232,14 @@ Los registros permiten identificar el servicio, el endpoint, el identificador de
 
 ## Capturas de Swagger
 
-Las capturas de entrega se guardan en `docs/capturas/`.
+Las capturas de entrega se guardan en `Docs/Capturas/`.
 
-Deben mostrar solicitudes ejecutadas desde Swagger y su respuesta de error, con el código HTTP, `errorCode` y `errorMessage` visibles.
+Muestran solicitudes ejecutadas desde Swagger y sus respuestas de error, con el código HTTP, `errorCode` y `errorMessage` visibles.
+
+| Servicio | Captura |
+|---|---|
+| Products.API | [Error 404 — PRD-001](Docs/Capturas/products-error-404.png) |
+| Users.API | [Error 400 — USR-002](Docs/Capturas/users-error-400.png) |
+| Cart.API | [Error 400 — CRT-004](Docs/Capturas/cart-error-400.png) |
+| Orders.API | [Error 400 — ORD-002](Docs/Capturas/orders-error-400.png) |
+| Notifications.API | [Error 400 — NTF-002](Docs/Capturas/notifications-error-400.png) |
