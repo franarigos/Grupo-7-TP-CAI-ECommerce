@@ -25,7 +25,28 @@ public class Program
     /// <param name="args">Argumentos de inicio.</param>
     public static void Main(string[] args)
     {
+        string entorno =
+            Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? "Production";
+
+        IConfiguration configuracion = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile("appsettings." + entorno + ".json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
+
         Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Is(
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Default",
+                    LogEventLevel.Information))
+            .MinimumLevel.Override(
+                "Microsoft",
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Microsoft",
+                    LogEventLevel.Warning))
             .Enrich.FromLogContext()
             .Enrich.WithProperty("Servicio", "Orders.API")
             .WriteTo.Console(
@@ -47,14 +68,10 @@ public class Program
             builder.Host.UseSerilog();
 
             builder.Services.AddControllers()
-                .ConfigureApiBehaviorOptions(
-                    ConfigurarValidacion);
+                .ConfigureApiBehaviorOptions(ConfigurarValidacion);
 
             builder.Services.AddEndpointsApiExplorer();
-
-            builder.Services.AddSwaggerGen(
-                ConfigurarSwagger);
-
+            builder.Services.AddSwaggerGen(ConfigurarSwagger);
             builder.Services.AddHttpContextAccessor();
 
             builder.Services.AddHttpClient(
@@ -65,11 +82,8 @@ public class Program
                 "ProductsApi",
                 ConfigurarClienteProducts);
 
-            builder.Services.AddSingleton<
-                DatabaseInitializer>();
-
-            builder.Services.AddScoped<
-                OrderRepository>();
+            builder.Services.AddSingleton<DatabaseInitializer>();
+            builder.Services.AddScoped<OrderRepository>();
 
             builder.Services.AddScoped<
                 IOrdersService,
@@ -91,30 +105,25 @@ public class Program
                 ConfigurarErroresHttp);
 
             builder.Services.AddHealthChecks()
-                .AddCheck<SqliteHealthCheck>(
-                    "sqlite-db");
+                .AddCheck<SqliteHealthCheck>("sqlite-db");
 
             WebApplication app = builder.Build();
 
-            using (IServiceScope scope =
-                app.Services.CreateScope())
+            using (IServiceScope scope = app.Services.CreateScope())
             {
                 DatabaseInitializer initializer =
                     scope.ServiceProvider
-                        .GetRequiredService<
-                            DatabaseInitializer>();
+                        .GetRequiredService<DatabaseInitializer>();
 
                 initializer.Initialize();
             }
 
-            app.UseMiddleware<
-                CorrelationIdMiddleware>();
+            app.UseMiddleware<CorrelationIdMiddleware>();
 
             app.UseSerilogRequestLogging(
                 ConfigurarLogSolicitudes);
 
             app.UseExceptionHandler();
-
             app.UseStatusCodePages();
 
             app.UseSwagger();
@@ -148,9 +157,7 @@ public class Program
                 liveOptions);
 
             app.UseHttpsRedirection();
-
             app.UseAuthorization();
-
             app.MapControllers();
 
             app.Run();
@@ -185,8 +192,7 @@ public class Program
         {
             foreach (var error in campo.Errors)
             {
-                if (!string.IsNullOrWhiteSpace(
-                    error.ErrorMessage))
+                if (!string.IsNullOrWhiteSpace(error.ErrorMessage))
                 {
                     mensajes.Add(error.ErrorMessage);
                 }
@@ -197,8 +203,7 @@ public class Program
 
         if (string.IsNullOrWhiteSpace(mensaje))
         {
-            mensaje =
-                "Los datos de la orden son inválidos.";
+            mensaje = "Los datos de la orden son inválidos.";
         }
 
         context.HttpContext.Items["ErrorCode"] =
@@ -216,15 +221,13 @@ public class Program
                     "https://tools.ietf.org/html/rfc7231#section-6.5.1",
                 title = "Bad Request",
                 status = 400,
-                detail =
-                    "Los datos de la orden son inválidos.",
+                detail = "Los datos de la orden son inválidos.",
                 instance =
                     context.HttpContext.Request.Path.ToString(),
                 errorCode = "ORD-002",
                 errorMessage = mensaje,
                 correlationId =
-                    ObtenerCorrelationId(
-                        context.HttpContext)
+                    ObtenerCorrelationId(context.HttpContext)
             });
 
         resultado.ContentTypes.Add(
@@ -237,14 +240,11 @@ public class Program
         SwaggerGenOptions options)
     {
         string xmlFile =
-            Assembly.GetExecutingAssembly()
-                .GetName().Name
+            Assembly.GetExecutingAssembly().GetName().Name
             + ".xml";
 
         string xmlPath =
-            Path.Combine(
-                AppContext.BaseDirectory,
-                xmlFile);
+            Path.Combine(AppContext.BaseDirectory, xmlFile);
 
         if (File.Exists(xmlPath))
         {
@@ -257,11 +257,9 @@ public class Program
         HttpClient client)
     {
         IConfiguration config =
-            services.GetRequiredService<
-                IConfiguration>();
+            services.GetRequiredService<IConfiguration>();
 
-        string url =
-            config["Services:UsersApi"];
+        string url = config["Services:UsersApi"];
 
         if (string.IsNullOrWhiteSpace(url))
         {
@@ -270,9 +268,7 @@ public class Program
         }
 
         client.BaseAddress = new Uri(url);
-
-        client.Timeout =
-            TimeSpan.FromSeconds(10);
+        client.Timeout = TimeSpan.FromSeconds(10);
     }
 
     private static void ConfigurarClienteProducts(
@@ -280,11 +276,9 @@ public class Program
         HttpClient client)
     {
         IConfiguration config =
-            services.GetRequiredService<
-                IConfiguration>();
+            services.GetRequiredService<IConfiguration>();
 
-        string url =
-            config["Services:ProductsApi"];
+        string url = config["Services:ProductsApi"];
 
         if (string.IsNullOrWhiteSpace(url))
         {
@@ -293,9 +287,7 @@ public class Program
         }
 
         client.BaseAddress = new Uri(url);
-
-        client.Timeout =
-            TimeSpan.FromSeconds(10);
+        client.Timeout = TimeSpan.FromSeconds(10);
     }
 
     private static void ConfigurarErroresHttp(
@@ -308,15 +300,13 @@ public class Program
     private static void CompletarErrorHttp(
         ProblemDetailsContext context)
     {
-        ProblemDetails problem =
-            context.ProblemDetails;
+        ProblemDetails problem = context.ProblemDetails;
 
         int status =
             problem.Status
             ?? context.HttpContext.Response.StatusCode;
 
-        string errorCode =
-            "ORD-HTTP-" + status;
+        string errorCode = "ORD-HTTP-" + status;
 
         string mensaje =
             "La solicitud no pudo procesarse.";
@@ -342,15 +332,11 @@ public class Program
         problem.Instance =
             context.HttpContext.Request.Path.ToString();
 
-        problem.Extensions["errorCode"] =
-            errorCode;
-
-        problem.Extensions["errorMessage"] =
-            mensaje;
+        problem.Extensions["errorCode"] = errorCode;
+        problem.Extensions["errorMessage"] = mensaje;
 
         problem.Extensions["correlationId"] =
-            ObtenerCorrelationId(
-                context.HttpContext);
+            ObtenerCorrelationId(context.HttpContext);
 
         context.HttpContext.Items["ErrorCode"] =
             errorCode;
@@ -374,16 +360,14 @@ public class Program
     private static string ObtenerCorrelationId(
         HttpContext context)
     {
-        return context.Items[
-            "X-Correlation-Id"]?.ToString()
+        return context.Items["X-Correlation-Id"]?.ToString()
             ?? context.TraceIdentifier;
     }
 
     private static void ConfigurarLogSolicitudes(
         RequestLoggingOptions options)
     {
-        options.GetLevel =
-            ObtenerNivelLog;
+        options.GetLevel = ObtenerNivelLog;
 
         options.EnrichDiagnosticContext =
             CompletarLogSolicitud;
@@ -424,8 +408,7 @@ public class Program
         {
             diagnosticContext.Set(
                 "ErrorCode",
-                context.Items[
-                    "ErrorCode"]!.ToString());
+                context.Items["ErrorCode"]!.ToString());
         }
     }
 

@@ -25,7 +25,28 @@ public class Program
     /// <param name="args">Argumentos de inicio.</param>
     public static void Main(string[] args)
     {
+        string entorno =
+            Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? "Production";
+
+        IConfiguration configuracion = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile("appsettings." + entorno + ".json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
+
         Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Is(
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Default",
+                    LogEventLevel.Information))
+            .MinimumLevel.Override(
+                "Microsoft",
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Microsoft",
+                    LogEventLevel.Warning))
             .Enrich.FromLogContext()
             .Enrich.WithProperty("Servicio", "Products.API")
             .WriteTo.Console(
@@ -50,9 +71,7 @@ public class Program
                 .ConfigureApiBehaviorOptions(ConfigurarValidacion);
 
             builder.Services.AddEndpointsApiExplorer();
-
             builder.Services.AddSwaggerGen(ConfigurarSwagger);
-
             builder.Services.AddHttpContextAccessor();
 
             builder.Services.AddHttpClient(
@@ -83,8 +102,7 @@ public class Program
 
             WebApplication app = builder.Build();
 
-            using (IServiceScope scope =
-                app.Services.CreateScope())
+            using (IServiceScope scope = app.Services.CreateScope())
             {
                 DatabaseInitializer initializer =
                     scope.ServiceProvider
@@ -99,7 +117,6 @@ public class Program
                 ConfigurarLogSolicitudes);
 
             app.UseExceptionHandler();
-
             app.UseStatusCodePages();
 
             app.UseSwagger();
@@ -133,9 +150,7 @@ public class Program
                 liveOptions);
 
             app.UseHttpsRedirection();
-
             app.UseAuthorization();
-
             app.MapControllers();
 
             app.Run();
@@ -170,8 +185,7 @@ public class Program
         {
             foreach (var error in campo.Errors)
             {
-                if (!string.IsNullOrWhiteSpace(
-                    error.ErrorMessage))
+                if (!string.IsNullOrWhiteSpace(error.ErrorMessage))
                 {
                     mensajes.Add(error.ErrorMessage);
                 }
@@ -200,8 +214,7 @@ public class Program
                     "https://tools.ietf.org/html/rfc7231#section-6.5.1",
                 title = "Bad Request",
                 status = 400,
-                detail =
-                    "Los datos del producto son inválidos.",
+                detail = "Los datos del producto son inválidos.",
                 instance =
                     context.HttpContext.Request.Path.ToString(),
                 errorCode = "PRD-002",
@@ -294,7 +307,6 @@ public class Program
             context.HttpContext.Request.Path.ToString();
 
         problem.Extensions["errorCode"] = errorCode;
-
         problem.Extensions["errorMessage"] = mensaje;
 
         problem.Extensions["correlationId"] =

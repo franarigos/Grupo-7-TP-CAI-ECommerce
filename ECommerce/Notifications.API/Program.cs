@@ -9,6 +9,7 @@ using Notifications.API.HealthChecks;
 using Notifications.API.Middlewares;
 using Notifications.API.Services;
 using Serilog;
+using Serilog.Events;
 using Serilog.Formatting.Json;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -23,11 +24,30 @@ public class Program
     /// <param name="args">Argumentos de inicio.</param>
     public static void Main(string[] args)
     {
+        string entorno =
+            Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? "Production";
+
+        IConfiguration configuracion = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile("appsettings." + entorno + ".json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
+
         Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Is(
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Default",
+                    LogEventLevel.Information))
+            .MinimumLevel.Override(
+                "Microsoft",
+                configuracion.GetValue<LogEventLevel>(
+                    "Logging:LogLevel:Microsoft",
+                    LogEventLevel.Warning))
             .Enrich.FromLogContext()
-            .Enrich.WithProperty(
-                "Servicio",
-                "Notifications.API")
+            .Enrich.WithProperty("Servicio", "Notifications.API")
             .WriteTo.Console(
                 outputTemplate:
                 "[{Timestamp:HH:mm:ss} {Level:u3}] " +
@@ -47,28 +67,19 @@ public class Program
             builder.Host.UseSerilog();
 
             builder.Services.AddControllers()
-                .ConfigureApiBehaviorOptions(
-                    ConfigurarValidacion);
+                .ConfigureApiBehaviorOptions(ConfigurarValidacion);
 
             builder.Services.AddEndpointsApiExplorer();
-
-            builder.Services.AddSwaggerGen(
-                ConfigurarSwagger);
-
+            builder.Services.AddSwaggerGen(ConfigurarSwagger);
             builder.Services.AddHttpContextAccessor();
 
             builder.Services.AddHttpClient(
                 "UsersAPI",
                 ConfigurarClienteUsers);
 
-            builder.Services.AddSingleton<
-                DatabaseInitializer>();
-
-            builder.Services.AddScoped<
-                NotificationRepository>();
-
-            builder.Services.AddScoped<
-                NotificationService>();
+            builder.Services.AddSingleton<DatabaseInitializer>();
+            builder.Services.AddScoped<NotificationRepository>();
+            builder.Services.AddScoped<NotificationService>();
 
             builder.Services.AddExceptionHandler<
                 NotFoundExceptionHandler>();
@@ -83,27 +94,22 @@ public class Program
                 ConfigurarErroresHttp);
 
             builder.Services.AddHealthChecks()
-                .AddCheck<SqliteHealthCheck>(
-                    "sqlite-db");
+                .AddCheck<SqliteHealthCheck>("sqlite-db");
 
             WebApplication app = builder.Build();
 
-            using (IServiceScope scope =
-                app.Services.CreateScope())
+            using (IServiceScope scope = app.Services.CreateScope())
             {
                 DatabaseInitializer initializer =
                     scope.ServiceProvider
-                        .GetRequiredService<
-                            DatabaseInitializer>();
+                        .GetRequiredService<DatabaseInitializer>();
 
                 initializer.Initialize();
             }
 
-            app.UseMiddleware<
-                CorrelationIdMiddleware>();
+            app.UseMiddleware<CorrelationIdMiddleware>();
 
             app.UseExceptionHandler();
-
             app.UseStatusCodePages();
 
             app.UseSwagger();
@@ -170,8 +176,7 @@ public class Program
         {
             foreach (var error in campo.Errors)
             {
-                if (!string.IsNullOrWhiteSpace(
-                    error.ErrorMessage))
+                if (!string.IsNullOrWhiteSpace(error.ErrorMessage))
                 {
                     mensajes.Add(error.ErrorMessage);
                 }
@@ -182,8 +187,7 @@ public class Program
 
         if (string.IsNullOrWhiteSpace(mensaje))
         {
-            mensaje =
-                "Los datos de la notificación son inválidos.";
+            mensaje = "Los datos de la notificación son inválidos.";
         }
 
         context.HttpContext.Items["ErrorCode"] =
@@ -201,15 +205,13 @@ public class Program
                     "https://tools.ietf.org/html/rfc7231#section-6.5.1",
                 title = "Bad Request",
                 status = 400,
-                detail =
-                    "Los datos enviados no son válidos.",
+                detail = "Los datos enviados no son válidos.",
                 instance =
                     context.HttpContext.Request.Path.ToString(),
                 errorCode = "NTF-002",
                 errorMessage = mensaje,
                 correlationId =
-                    ObtenerCorrelationId(
-                        context.HttpContext)
+                    ObtenerCorrelationId(context.HttpContext)
             });
 
         resultado.ContentTypes.Add(
@@ -222,14 +224,11 @@ public class Program
         SwaggerGenOptions options)
     {
         string xmlFile =
-            Assembly.GetExecutingAssembly()
-                .GetName().Name
+            Assembly.GetExecutingAssembly().GetName().Name
             + ".xml";
 
         string xmlPath =
-            Path.Combine(
-                AppContext.BaseDirectory,
-                xmlFile);
+            Path.Combine(AppContext.BaseDirectory, xmlFile);
 
         if (File.Exists(xmlPath))
         {
@@ -242,11 +241,9 @@ public class Program
         HttpClient client)
     {
         IConfiguration config =
-            services.GetRequiredService<
-                IConfiguration>();
+            services.GetRequiredService<IConfiguration>();
 
-        string? url =
-            config["Services:UsersApi"];
+        string? url = config["Services:UsersApi"];
 
         if (string.IsNullOrWhiteSpace(url))
         {
@@ -255,9 +252,7 @@ public class Program
         }
 
         client.BaseAddress = new Uri(url);
-
-        client.Timeout =
-            TimeSpan.FromSeconds(10);
+        client.Timeout = TimeSpan.FromSeconds(10);
     }
 
     private static void ConfigurarErroresHttp(
@@ -270,15 +265,13 @@ public class Program
     private static void CompletarErrorHttp(
         ProblemDetailsContext context)
     {
-        ProblemDetails problem =
-            context.ProblemDetails;
+        ProblemDetails problem = context.ProblemDetails;
 
         int status =
             problem.Status
             ?? context.HttpContext.Response.StatusCode;
 
-        string errorCode =
-            "NTF-HTTP-" + status;
+        string errorCode = "NTF-HTTP-" + status;
 
         string mensaje =
             "La solicitud no pudo procesarse.";
@@ -304,15 +297,11 @@ public class Program
         problem.Instance =
             context.HttpContext.Request.Path.ToString();
 
-        problem.Extensions["errorCode"] =
-            errorCode;
-
-        problem.Extensions["errorMessage"] =
-            mensaje;
+        problem.Extensions["errorCode"] = errorCode;
+        problem.Extensions["errorMessage"] = mensaje;
 
         problem.Extensions["correlationId"] =
-            ObtenerCorrelationId(
-                context.HttpContext);
+            ObtenerCorrelationId(context.HttpContext);
 
         context.HttpContext.Items["ErrorCode"] =
             errorCode;
@@ -336,8 +325,7 @@ public class Program
     private static string ObtenerCorrelationId(
         HttpContext context)
     {
-        return context.Items[
-            "CorrelationId"]?.ToString()
+        return context.Items["CorrelationId"]?.ToString()
             ?? context.TraceIdentifier;
     }
 
