@@ -20,6 +20,8 @@ namespace Orders.API.ExceptionHandlers
                 return false;
             }
 
+            context.Items["ErrorCode"] = ex.ErrorCode;
+
             int statusCode = 409;
             string titulo = "Conflict";
             string detalle = "No se puede modificar el estado.";
@@ -36,7 +38,7 @@ namespace Orders.API.ExceptionHandlers
             }
 
             Log.Warning(
-                "Error de negocio {errorCode}: {Mensaje}",
+                "Error de negocio {ErrorCode}: {Mensaje}",
                 ex.ErrorCode,
                 ex.Message);
 

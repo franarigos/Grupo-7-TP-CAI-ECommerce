@@ -20,6 +20,8 @@ namespace Products.API.ExceptionHandlers
                 return false;
             }
 
+            context.Items["ErrorCode"] = ex.ErrorCode;
+
             string correlationId =
                 context.Items["CorrelationId"]?.ToString()
                 ?? context.TraceIdentifier;

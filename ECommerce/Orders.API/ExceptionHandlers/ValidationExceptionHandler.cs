@@ -20,8 +20,10 @@ namespace Orders.API.ExceptionHandlers
                 return false;
             }
 
+            context.Items["ErrorCode"] = ex.ErrorCode;
+
             Log.Warning(
-                "Error de validacion {errorCode}: {Mensaje}",
+                "Error de validacion {ErrorCode}: {Mensaje}",
                 ex.ErrorCode,
                 ex.Message);
 

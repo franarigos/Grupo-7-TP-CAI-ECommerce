@@ -9,13 +9,23 @@ namespace Users.API.ExceptionHandlers
 {
     public class BusinessRuleExceptionHandler : IExceptionHandler
     {
-        public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
+        public async ValueTask<bool> TryHandleAsync(
+            HttpContext context,
+            Exception exception,
+            CancellationToken cancellationToken)
         {
-            if (exception is not BusinessRuleException ex) return false;
+            if (exception is not BusinessRuleException ex)
+            {
+                return false;
+            }
 
-            var correlationId = context.Request.Headers["X-Correlation-Id"].ToString();
+            context.Items["ErrorCode"] = ex.ErrorCode;
+
+            string correlationId =
+                context.Request.Headers["X-Correlation-Id"].ToString();
 
             context.Response.StatusCode = 409;
+
             await context.Response.WriteAsJsonAsync(new
             {
                 type = "https://tools.ietf.org/html/rfc7231#section-6.5.9",

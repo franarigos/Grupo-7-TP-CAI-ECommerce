@@ -15,9 +15,11 @@ namespace Orders.API.ExceptionHandlers
             Exception exception,
             CancellationToken cancellationToken)
         {
+            context.Items["ErrorCode"] = ErrorCodes.ORD_007;
+
             Log.Error(
                 exception,
-                "Error interno {errorCode}",
+                "Error interno {ErrorCode}",
                 ErrorCodes.ORD_007);
 
             context.Response.StatusCode = 500;
