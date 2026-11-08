@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Serilog;
@@ -35,13 +34,9 @@ namespace Users.API.Middlewares
 
             context.Items["CorrelationId"] = correlationId;
 
-            context.Response.OnStarting(() =>
-            {
-                context.Response.Headers[CorrelationIdHeader] =
-                    correlationId;
-
-                return Task.CompletedTask;
-            });
+            context.Response.OnStarting(
+                AgregarCorrelationId,
+                context);
 
             using (LogContext.PushProperty(
                 "CorrelationId",
@@ -57,6 +52,17 @@ namespace Users.API.Middlewares
 
                 await _next(context);
             }
+        }
+
+        private static Task AgregarCorrelationId(object estado)
+        {
+            HttpContext context = (HttpContext)estado;
+
+            context.Response.Headers["X-Correlation-Id"] =
+                context.Items["CorrelationId"]?.ToString()
+                ?? context.TraceIdentifier;
+
+            return Task.CompletedTask;
         }
     }
 }

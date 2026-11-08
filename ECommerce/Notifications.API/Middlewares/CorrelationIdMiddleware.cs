@@ -45,13 +45,9 @@ namespace Notifications.API.Middlewares
             context.TraceIdentifier = correlationId;
             context.Items["CorrelationId"] = correlationId;
 
-            context.Response.OnStarting(() =>
-            {
-                context.Response.Headers["X-Correlation-Id"] =
-                    correlationId;
-
-                return Task.CompletedTask;
-            });
+            context.Response.OnStarting(
+                AgregarCorrelationId,
+                context);
 
             using (LogContext.PushProperty(
                 "CorrelationId",
@@ -93,6 +89,17 @@ namespace Notifications.API.Middlewares
                         context.Items["ErrorCode"]?.ToString());
                 }
             }
+        }
+
+        private static Task AgregarCorrelationId(object estado)
+        {
+            HttpContext context = (HttpContext)estado;
+
+            context.Response.Headers["X-Correlation-Id"] =
+                context.Items["CorrelationId"]?.ToString()
+                ?? context.TraceIdentifier;
+
+            return Task.CompletedTask;
         }
     }
 }
