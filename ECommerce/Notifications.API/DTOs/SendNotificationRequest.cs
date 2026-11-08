@@ -2,6 +2,9 @@
 
 namespace Notifications.API.DTOs
 {
+    /// <summary>
+    /// Datos para registrar una notificación.
+    /// </summary>
     public class SendNotificationRequest
     {
         /// <summary>

@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +18,10 @@ namespace Notifications.API.Controllers
     {
         private readonly NotificationService _service;
 
+        /// <summary>
+        /// Inicializa el controlador de notificaciones.
+        /// </summary>
+        /// <param name="service">Servicio de notificaciones.</param>
         public NotificationsController(
             NotificationService service)
         {
@@ -29,39 +32,48 @@ namespace Notifications.API.Controllers
         /// Registra y simula el envío de una notificación.
         /// </summary>
         /// <remarks>
-        /// Ejemplo de solicitud:
-        ///
+        /// Solicitud:
+        /// <code>
         /// {
-        ///   "usuarioId": "a1b2c3d4-0000-0000-0000-111122223333",
+        ///   "usuarioId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         ///   "mensaje": "Su orden fue confirmada.",
         ///   "tipo": "Email"
         /// }
-        ///
-        /// Ejemplo de respuesta 201:
-        ///
+        /// </code>
+        /// Respuesta 201:
+        /// <code>
         /// {
         ///   "id": "11112222-3333-4444-5555-666677778888",
-        ///   "usuarioId": "a1b2c3d4-0000-0000-0000-111122223333",
+        ///   "usuarioId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         ///   "mensaje": "Su orden fue confirmada.",
         ///   "tipo": "Email",
         ///   "estado": "Enviada",
-        ///   "fechaEnvio": "2024-03-10T12:01:00Z"
+        ///   "fechaEnvio": "2026-11-07T12:00:00Z"
         /// }
-        ///
-        /// Ejemplo de respuesta 404:
-        ///
+        /// </code>
+        /// Respuesta 404:
+        /// <code>
         /// {
+        ///   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+        ///   "title": "Not Found",
+        ///   "status": 404,
+        ///   "detail": "El recurso solicitado no fue encontrado.",
+        ///   "instance": "/api/notifications/send",
         ///   "errorCode": "NTF-001",
-        ///   "errorMessage": "El usuario destinatario no fue encontrado."
+        ///   "errorMessage": "El usuario destinatario no fue encontrado.",
+        ///   "correlationId": "11111111-2222-3333-4444-555555555555"
         /// }
+        /// </code>
         /// </remarks>
         /// <param name="request">Datos de la notificación.</param>
         /// <param name="cancellationToken">Token de cancelación.</param>
+        /// <response code="415">NTF-HTTP-415: Formato de contenido no admitido.</response>
         /// <response code="201">Notificación registrada.</response>
         /// <response code="400">NTF-002: Datos inválidos.</response>
         /// <response code="404">NTF-001: Usuario no encontrado.</response>
         /// <response code="500">NTF-004: Error interno.</response>
         [HttpPost("send")]
+        [ProducesResponseType(typeof(ApiErrorResponse), 415)]
         [ProducesResponseType(typeof(NotificationResponse), 201)]
         [ProducesResponseType(typeof(ApiErrorResponse), 400)]
         [ProducesResponseType(typeof(ApiErrorResponse), 404)]
@@ -82,27 +94,34 @@ namespace Notifications.API.Controllers
         /// Lista las notificaciones de un usuario.
         /// </summary>
         /// <remarks>
-        /// Ejemplo de respuesta 200:
-        ///
+        /// Respuesta 200:
+        /// <code>
         /// [
         ///   {
         ///     "id": "11112222-3333-4444-5555-666677778888",
-        ///     "usuarioId": "a1b2c3d4-0000-0000-0000-111122223333",
+        ///     "usuarioId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         ///     "mensaje": "Su orden fue confirmada.",
         ///     "tipo": "Email",
         ///     "estado": "Enviada",
-        ///     "fechaEnvio": "2024-03-10T12:01:00Z"
+        ///     "fechaEnvio": "2026-11-07T12:00:00Z"
         ///   }
         /// ]
-        ///
-        /// Ejemplo de respuesta 404:
-        ///
+        /// </code>
+        /// Respuesta 404:
+        /// <code>
         /// {
+        ///   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+        ///   "title": "Not Found",
+        ///   "status": 404,
+        ///   "detail": "El recurso solicitado no fue encontrado.",
+        ///   "instance": "/api/notifications/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         ///   "errorCode": "NTF-003",
-        ///   "errorMessage": "No se encontraron notificaciones para el usuario."
+        ///   "errorMessage": "No se encontraron notificaciones para el usuario.",
+        ///   "correlationId": "11111111-2222-3333-4444-555555555555"
         /// }
+        /// </code>
         /// </remarks>
-        /// <param name="userId">Identificador del usuario.</param>
+        /// <param name="userId">Identificador del usuario en formato GUID.</param>
         /// <response code="200">Lista de notificaciones.</response>
         /// <response code="400">NTF-002: Identificador inválido.</response>
         /// <response code="404">NTF-003: Sin notificaciones.</response>
