@@ -1,96 +1,223 @@
-
-using System;
-using System.Collections.Generic;
-using System.IO;
+using System.Net.Http;
 using System.Reflection;
-using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Products.API.Data;
 using Products.API.ExceptionHandlers;
 using Products.API.HealthChecks;
 using Products.API.Middlewares;
 using Products.API.Services;
 using Serilog;
+using Serilog.AspNetCore;
+using Serilog.Events;
 using Serilog.Formatting.Json;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
-Log.Logger = new LoggerConfiguration()
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Servicio", "Products.API")
-    .WriteTo.Console()
-    .WriteTo.File(
-        new JsonFormatter(),
-        "logs/products-api-.json",
-        rollingInterval: RollingInterval.Day)
-    .CreateLogger();
-
-try
+/// <summary>
+/// Configura e inicia Products.API.
+/// </summary>
+public class Program
 {
-    WebApplicationBuilder builder =
-        WebApplication.CreateBuilder(args);
+    /// <summary>
+    /// Inicia la aplicación.
+    /// </summary>
+    /// <param name="args">Argumentos de inicio.</param>
+    public static void Main(string[] args)
+    {
+        Log.Logger = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .Enrich.WithProperty("Servicio", "Products.API")
+            .WriteTo.Console(
+                outputTemplate:
+                "[{Timestamp:HH:mm:ss} {Level:u3}] " +
+                "{Servicio} {Endpoint} {CorrelationId} {ErrorCode} " +
+                "{Message:lj}{NewLine}{Exception}")
+            .WriteTo.File(
+                new JsonFormatter(),
+                "logs/products-api-.json",
+                rollingInterval: RollingInterval.Day)
+            .CreateLogger();
 
-    builder.Host.UseSerilog();
-
-    builder.Services.AddControllers()
-        .ConfigureApiBehaviorOptions(options =>
+        try
         {
-            options.InvalidModelStateResponseFactory = context =>
+            WebApplicationBuilder builder =
+                WebApplication.CreateBuilder(args);
+
+            builder.Host.UseSerilog();
+
+            builder.Services.AddControllers()
+                .ConfigureApiBehaviorOptions(ConfigurarValidacion);
+
+            builder.Services.AddEndpointsApiExplorer();
+
+            builder.Services.AddSwaggerGen(ConfigurarSwagger);
+
+            builder.Services.AddHttpContextAccessor();
+
+            builder.Services.AddHttpClient(
+                "OrdersApi",
+                ConfigurarClienteOrders);
+
+            builder.Services.AddSingleton<DatabaseInitializer>();
+            builder.Services.AddScoped<ProductRepository>();
+            builder.Services.AddScoped<ProductService>();
+
+            builder.Services.AddExceptionHandler<
+                NotFoundExceptionHandler>();
+
+            builder.Services.AddExceptionHandler<
+                BusinessRuleExceptionHandler>();
+
+            builder.Services.AddExceptionHandler<
+                ValidationExceptionHandler>();
+
+            builder.Services.AddExceptionHandler<
+                GlobalExceptionHandler>();
+
+            builder.Services.AddProblemDetails(
+                ConfigurarErroresHttp);
+
+            builder.Services.AddHealthChecks()
+                .AddCheck<SqliteHealthCheck>("sqlite-db");
+
+            WebApplication app = builder.Build();
+
+            using (IServiceScope scope =
+                app.Services.CreateScope())
             {
-                List<string> mensajes = new List<string>();
+                DatabaseInitializer initializer =
+                    scope.ServiceProvider
+                        .GetRequiredService<DatabaseInitializer>();
 
-                foreach (var entry in context.ModelState.Values)
+                initializer.Initialize();
+            }
+
+            app.UseMiddleware<CorrelationIdMiddleware>();
+
+            app.UseSerilogRequestLogging(
+                ConfigurarLogSolicitudes);
+
+            app.UseExceptionHandler();
+
+            app.UseStatusCodePages();
+
+            app.UseSwagger();
+            app.UseSwaggerUI();
+
+            HealthCheckOptions healthOptions =
+                new HealthCheckOptions();
+
+            healthOptions.ResponseWriter =
+                EscribirEstadoSalud;
+
+            app.MapHealthChecks(
+                "/health",
+                healthOptions);
+
+            app.MapHealthChecks(
+                "/health/ready",
+                healthOptions);
+
+            HealthCheckOptions liveOptions =
+                new HealthCheckOptions();
+
+            liveOptions.Predicate =
+                ExcluirComprobacion;
+
+            liveOptions.ResponseWriter =
+                EscribirEstadoSalud;
+
+            app.MapHealthChecks(
+                "/health/live",
+                liveOptions);
+
+            app.UseHttpsRedirection();
+
+            app.UseAuthorization();
+
+            app.MapControllers();
+
+            app.Run();
+        }
+        catch (Exception ex)
+        {
+            Log.Fatal(
+                ex,
+                "Error inesperado al iniciar Products.API");
+
+            throw;
+        }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
+    }
+
+    private static void ConfigurarValidacion(
+        ApiBehaviorOptions options)
+    {
+        options.InvalidModelStateResponseFactory =
+            CrearErrorValidacion;
+    }
+
+    private static IActionResult CrearErrorValidacion(
+        ActionContext context)
+    {
+        List<string> mensajes = new List<string>();
+
+        foreach (var campo in context.ModelState.Values)
+        {
+            foreach (var error in campo.Errors)
+            {
+                if (!string.IsNullOrWhiteSpace(
+                    error.ErrorMessage))
                 {
-                    foreach (var error in entry.Errors)
-                    {
-                        if (!string.IsNullOrWhiteSpace(
-                            error.ErrorMessage))
-                        {
-                            mensajes.Add(error.ErrorMessage);
-                        }
-                    }
+                    mensajes.Add(error.ErrorMessage);
                 }
+            }
+        }
 
-                string mensaje = string.Join("; ", mensajes);
+        string mensaje = string.Join("; ", mensajes);
 
-                if (string.IsNullOrWhiteSpace(mensaje))
-                {
-                    mensaje =
-                        "Los datos del producto son inválidos.";
-                }
+        if (string.IsNullOrWhiteSpace(mensaje))
+        {
+            mensaje = "Los datos del producto son inválidos.";
+        }
 
-                string correlationId =
-                    context.HttpContext.Items[
-                        "CorrelationId"]?.ToString()
-                    ?? context.HttpContext.TraceIdentifier;
+        context.HttpContext.Items["ErrorCode"] =
+            "PRD-002";
 
-                Log.Warning(
-                    "Validación incorrecta {ErrorCode}: {Mensaje}",
-                    "PRD-002",
-                    mensaje);
+        Log.Warning(
+            "Validación incorrecta {ErrorCode}: {Mensaje}",
+            "PRD-002",
+            mensaje);
 
-                BadRequestObjectResult resultado =
-                    new BadRequestObjectResult(new
-                    {
-                        type = "https://tools.ietf.org/html/rfc7231#section-6.5.1",
-                        title = "Bad Request",
-                        status = 400,
-                        detail = "Los datos del producto son inválidos.",
-                        instance = context.HttpContext.Request.Path.Value,
-                        errorCode = "PRD-002",
-                        errorMessage = mensaje,
-                        correlationId = correlationId
-                    });
+        BadRequestObjectResult resultado =
+            new BadRequestObjectResult(new
+            {
+                type =
+                    "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+                title = "Bad Request",
+                status = 400,
+                detail =
+                    "Los datos del producto son inválidos.",
+                instance =
+                    context.HttpContext.Request.Path.ToString(),
+                errorCode = "PRD-002",
+                errorMessage = mensaje,
+                correlationId =
+                    ObtenerCorrelationId(context.HttpContext)
+            });
 
-                resultado.ContentTypes.Add(
-                    "application/problem+json");
+        resultado.ContentTypes.Add(
+            "application/problem+json");
 
-                return resultado;
-            };
-        });
+        return resultado;
+    }
 
-    builder.Services.AddEndpointsApiExplorer();
-
-    builder.Services.AddSwaggerGen(options =>
+    private static void ConfigurarSwagger(
+        SwaggerGenOptions options)
     {
         string xmlFile =
             Assembly.GetExecutingAssembly().GetName().Name
@@ -103,14 +230,16 @@ try
         {
             options.IncludeXmlComments(xmlPath);
         }
-    });
+    }
 
-    builder.Services.AddHttpContextAccessor();
-
-    builder.Services.AddHttpClient("OrdersApi", client =>
+    private static void ConfigurarClienteOrders(
+        IServiceProvider services,
+        HttpClient client)
     {
-        string? url =
-            builder.Configuration["Services:OrdersApi"];
+        IConfiguration config =
+            services.GetRequiredService<IConfiguration>();
+
+        string? url = config["Services:OrdersApi"];
 
         if (string.IsNullOrWhiteSpace(url))
         {
@@ -120,119 +249,144 @@ try
 
         client.BaseAddress = new Uri(url);
         client.Timeout = TimeSpan.FromSeconds(10);
-    });
-
-    builder.Services.AddSingleton<DatabaseInitializer>();
-    builder.Services.AddScoped<ProductRepository>();
-    builder.Services.AddScoped<ProductService>();
-
-    builder.Services.AddExceptionHandler<
-        NotFoundExceptionHandler>();
-
-    builder.Services.AddExceptionHandler<
-        BusinessRuleExceptionHandler>();
-
-    builder.Services.AddExceptionHandler<
-        ValidationExceptionHandler>();
-
-    builder.Services.AddExceptionHandler<
-        GlobalExceptionHandler>();
-
-    builder.Services.AddProblemDetails();
-
-    builder.Services.AddHealthChecks()
-        .AddCheck<SqliteHealthCheck>("sqlite-db");
-
-    WebApplication app = builder.Build();
-
-    using (IServiceScope scope =
-        app.Services.CreateScope())
-    {
-        DatabaseInitializer initializer =
-            scope.ServiceProvider
-                .GetRequiredService<DatabaseInitializer>();
-
-        initializer.Initialize();
     }
 
-    app.UseMiddleware<CorrelationIdMiddleware>();
-
-    app.UseSerilogRequestLogging(options =>
+    private static void ConfigurarErroresHttp(
+        ProblemDetailsOptions options)
     {
+        options.CustomizeProblemDetails =
+            CompletarErrorHttp;
+    }
+
+    private static void CompletarErrorHttp(
+        ProblemDetailsContext context)
+    {
+        ProblemDetails problem = context.ProblemDetails;
+
+        int status =
+            problem.Status
+            ?? context.HttpContext.Response.StatusCode;
+
+        string errorCode = "PRD-HTTP-" + status;
+
+        string mensaje =
+            "La solicitud no pudo procesarse.";
+
+        if (status == 404)
+        {
+            mensaje =
+                "La ruta solicitada no fue encontrada.";
+        }
+        else if (status == 405)
+        {
+            mensaje =
+                "El método HTTP no está permitido para esta ruta.";
+        }
+        else if (status == 415)
+        {
+            mensaje =
+                "El contenido debe enviarse en un formato admitido por la API.";
+        }
+
+        problem.Detail = mensaje;
+
+        problem.Instance =
+            context.HttpContext.Request.Path.ToString();
+
+        problem.Extensions["errorCode"] = errorCode;
+
+        problem.Extensions["errorMessage"] = mensaje;
+
+        problem.Extensions["correlationId"] =
+            ObtenerCorrelationId(context.HttpContext);
+
+        context.HttpContext.Items["ErrorCode"] =
+            errorCode;
+
+        if (status >= 500)
+        {
+            Log.Error(
+                "Error HTTP {ErrorCode}: {Mensaje}",
+                errorCode,
+                mensaje);
+        }
+        else
+        {
+            Log.Warning(
+                "Error HTTP {ErrorCode}: {Mensaje}",
+                errorCode,
+                mensaje);
+        }
+    }
+
+    private static string ObtenerCorrelationId(
+        HttpContext context)
+    {
+        return context.Items["CorrelationId"]?.ToString()
+            ?? context.TraceIdentifier;
+    }
+
+    private static void ConfigurarLogSolicitudes(
+        RequestLoggingOptions options)
+    {
+        options.GetLevel = ObtenerNivelLog;
+
         options.EnrichDiagnosticContext =
-            (diagnosticContext, httpContext) =>
-            {
-                diagnosticContext.Set(
-                    "Endpoint",
-                    httpContext.Request.Path.ToString());
+            CompletarLogSolicitud;
+    }
 
-                diagnosticContext.Set(
-                    "CorrelationId",
-                    httpContext.Items[
-                        "CorrelationId"]?.ToString());
-            };
-    });
-
-    app.UseExceptionHandler();
-
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
-    HealthCheckOptions healthOptions =
-        new HealthCheckOptions
+    private static LogEventLevel ObtenerNivelLog(
+        HttpContext context,
+        double elapsed,
+        Exception? exception)
+    {
+        if (exception != null ||
+            context.Response.StatusCode >= 500)
         {
-            ResponseWriter = async (context, report) =>
-            {
-                context.Response.ContentType =
-                    "application/json";
+            return LogEventLevel.Error;
+        }
 
-                await context.Response.WriteAsync(
-                    JsonSerializer.Serialize(new
-                    {
-                        estado = report.Status.ToString()
-                    }));
-            }
-        };
-
-    app.MapHealthChecks("/health", healthOptions);
-    app.MapHealthChecks("/health/ready", healthOptions);
-
-    HealthCheckOptions liveOptions =
-        new HealthCheckOptions
+        if (context.Response.StatusCode >= 400)
         {
-            Predicate = registration => false,
-            ResponseWriter = async (context, report) =>
-            {
-                context.Response.ContentType =
-                    "application/json";
+            return LogEventLevel.Warning;
+        }
 
-                await context.Response.WriteAsync(
-                    JsonSerializer.Serialize(new
-                    {
-                        estado = report.Status.ToString()
-                    }));
-            }
-        };
+        return LogEventLevel.Information;
+    }
 
-    app.MapHealthChecks("/health/live", liveOptions);
+    private static void CompletarLogSolicitud(
+        IDiagnosticContext diagnosticContext,
+        HttpContext context)
+    {
+        diagnosticContext.Set(
+            "Endpoint",
+            context.Request.Path.ToString());
 
-    app.UseHttpsRedirection();
+        diagnosticContext.Set(
+            "CorrelationId",
+            ObtenerCorrelationId(context));
 
-    app.UseAuthorization();
+        if (context.Items["ErrorCode"] != null)
+        {
+            diagnosticContext.Set(
+                "ErrorCode",
+                context.Items["ErrorCode"]!.ToString());
+        }
+    }
 
-    app.MapControllers();
+    private static bool ExcluirComprobacion(
+        HealthCheckRegistration registration)
+    {
+        return false;
+    }
 
-    app.Run();
-}
-catch (Exception ex)
-{
-    Log.Fatal(
-        ex,
-        "Error inesperado al iniciar Products.API");
-
-    throw;
-}
-finally
-{
-    Log.CloseAndFlush();
+    private static Task EscribirEstadoSalud(
+        HttpContext context,
+        HealthReport report)
+    {
+        return context.Response.WriteAsJsonAsync(new
+        {
+            estado = report.Status.ToString()
+        });
+    }
 }
